@@ -41,22 +41,47 @@ class SafetyClassifier:
     def _load_adversarial_patterns(self) -> List[str]:
         """Load common adversarial/jailbreak patterns to detect."""
         return [
+            # Instruction manipulation
             "ignore previous instructions",
             "ignore all previous",
             "disregard previous",
             "forget everything",
+            "forget all instructions",
+            "override instructions",
+            
+            # System/role manipulation
             "system override",
             "admin mode",
             "developer mode",
+            "debug mode",
             "you are now",
             "act as if",
             "pretend you are",
+            "pretend that",
+            "assume you are",
+            "roleplay as",
+            
+            # Data extraction attempts
             "list all customers",
+            "list all",
             "show all accounts",
+            "show all customers",
+            "show me all",
+            "show all",
+            "give me all",
+            "all customer",
+            "every customer",
             "dump database",
             "print all",
             "give me everyone",
-            "bypass security"
+            "display all",
+            "reveal all",
+            
+            # Security bypass
+            "bypass security",
+            "bypass verification",
+            "skip verification",
+            "without verification"
         ]
     
     def check_adversarial_input(self, user_message: str) -> Dict[str, Any]:
