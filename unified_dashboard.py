@@ -107,10 +107,10 @@ with tab1:
             
             st.session_state.chat_history.append({
                 'role': 'assistant',
-                'content': result['response'],
+                'content': result['final_response'],
                 'status': result['status'],
-                'similarity_score': result.get('similarity_score'),
-                'processing_time': processing_time
+                'similarity_score': result.get('safety_result', {}).get('similarity_score'),
+                'processing_time': result.get('processing_time', processing_time)
             })
             
             st.rerun()
