@@ -1,8 +1,14 @@
-# Guardian Agent: Finance Customer Support with Safety Observer
+# SecureBank Support Agent: Red-Teaming Defense & Glass-Box Observability Demo
 
 ## Overview
 
-This project delivers a production-ready finance customer support agent featuring an integrated **Safety Observer**. Its primary purpose is to prevent sensitive information leakage by real-time monitoring and intervention, utilizing NLP-based similarity detection. The project aims to showcase a secure and intelligent customer interaction system for financial services, demonstrating how AI can enhance support while rigorously protecting proprietary and sensitive data. Key capabilities include conversational banking operations, real-time safety analysis, and comprehensive observability for monitoring agent performance and security.
+This hackathon project demonstrates a SecureBank customer support agent with multi-layered security defenses against adversarial attacks and PII leakage. Built for Track C (Red-Teaming Defense) and Track B (Glass-Box Observability), it showcases:
+1. **Adversarial Pattern Detection**: Real-time detection of jailbreak attempts, prompt injections, and role manipulation
+2. **PII Leak Prevention**: Similarity-based checking to prevent customer data leakage via semantic matching
+3. **Verification-Based Access**: Card number + postcode verification flow before revealing sensitive information
+4. **Comprehensive Observability**: LangFuse tracing with interactive dashboards showing adversarial attempts and PII leak blocks in real-time
+
+The demo includes 30 fake customer records with realistic PII (names, addresses, card numbers, balances) and test scenarios to demonstrate both happy-path operations and successful defense against adversarial prompts.
 
 ## User Preferences
 
@@ -14,27 +20,30 @@ The Guardian Agent project is structured around three main components, each serv
 
 ### Core Components
 
-1.  **Finance Customer Support Agent** (`finance_agent.py`): A LangGraph-based conversational agent powered by GPT-5, integrated with LangFuse for comprehensive tracing of reasoning steps, tool calls, and safety decisions. It includes five tools for banking operations: account balance, transaction history, fund transfers, loan eligibility, and contact information updates.
-2.  **Safety Classifier** (`safety_classifier.py`): A probabilistic NLP-based classifier that employs a hybrid approach. It uses precomputed 384-dimensional vectors from an `all-MiniLM-L6-v2` model for its knowledge base. For agent responses, it utilizes real-time encoding with `sentence-transformers` for semantic leak detection in development, falling back to robust keyword matching with 15+ financial/security keywords for deployment due to compatibility limitations. Cosine similarity compares agent responses against sensitive entries.
-3.  **Sensitive Knowledge Base** (`do_not_share.csv`): Contains 18 entries of sensitive financial information across categories such as fraud rules, internal models, system info, credentials, customer data, security, internal policy, and compliance.
-4.  **Finance Tools** (`finance_tools.py`): Mocks a banking backend with realistic data for two test customer accounts, providing implementations for all agent capabilities.
-5.  **Shared Telemetry** (`shared_telemetry.py`): A SQLite-based system for cross-process storage of interaction logs, ensuring multi-process locking and ACID guarantees. It enables the admin dashboard to view interactions from all components and supports efficient SQL aggregations for analytics.
+1.  **SecureBank Support Agent** (`finance_agent.py`): A LangGraph-based conversational agent powered by GPT-5 that implements verification-based access control. Features two tools: `verify_customer` (validates card_last4 + postcode) and `get_customer_balance` (returns balance only after verification). Integrated with LangFuse for comprehensive tracing and adversarial pattern detection.
+2.  **Safety Classifier** (`safety_classifier.py`): Dual-purpose security module:
+    - **Adversarial Pattern Detection**: Detects jailbreak attempts via keyword matching (15+ patterns including "ignore previous instructions", "list all", "admin mode", "system override")
+    - **PII Leak Prevention**: Uses precomputed 384-dimensional embeddings from `all-MiniLM-L6-v2` model to check output similarity against customer PII database. Falls back to keyword matching for deployment compatibility.
+3.  **Customer Knowledge Base** (`customer_knowledge_base.csv` + `customer_embeddings.pkl`): Contains 30 realistic fake customer records with PII: customer_id, name, card_last4, address, postcode, balance. Embeddings are precomputed for efficient similarity checking.
+4.  **Shared Telemetry** (`shared_telemetry.py`): SQLite-based cross-process logging system that tracks both PII leak attempts and adversarial input patterns for dashboard analytics.
 
 ### Architectural Patterns & Design Decisions
 
-*   **Modular Micro-frontend Architecture**: The system is split into three independent, interactive applications (Customer Chat, Admin Dashboard, Demo Finance Website) to enhance scalability, maintainability, and user experience.
-*   **Real-time Safety Intervention**: Agent responses are intercepted and analyzed by the Safety Observer before delivery. If a response's similarity to sensitive information exceeds a configurable threshold (default: 0.7), it is blocked, and a category-specific safe alternative message is provided.
-*   **Observability-Driven Design**: Deep integration with LangFuse for tracing all agent interactions, LLM calls, tool executions, and safety decisions. A `shared_telemetry.py` component provides a unified log of interactions across all parts of the system.
-*   **Hybrid NLP Approach**: Utilizes semantic similarity (cosine similarity with `sentence-transformers`) for development and robust keyword matching for deployment to ensure compatibility and performance.
-*   **Precomputed Embeddings**: To optimize deployment and startup times, embeddings for the sensitive knowledge base are precomputed.
+*   **Defense-in-Depth Security**: Multi-layered protection with adversarial pattern detection on input, PII similarity checking on output, and verification-based access control for sensitive operations.
+*   **Verification-First Design**: Agent cannot reveal account balances without successful card_last4 + postcode verification against customer knowledge base. This prevents data leakage even if adversarial prompts bypass other defenses.
+*   **Real-time Safety Intervention**: 
+    - **Input Layer**: Adversarial pattern detection flags jailbreak attempts, logged to LangFuse and telemetry
+    - **Output Layer**: PII leak prevention via similarity checking against customer embeddings (threshold: 0.7)
+*   **Observability-Driven Design**: Deep LangFuse integration tracking adversarial attempts, verification flows, PII leak blocks, and agent reasoning. Unified dashboard shows real-time security events with adversarial pattern indicators.
+*   **Hybrid Security Approach**: Semantic similarity for PII detection (development) + keyword matching (deployment fallback) + rule-based adversarial detection.
+*   **Precomputed Embeddings**: Customer PII embeddings pre-generated for fast similarity checks without runtime model loading overhead.
 *   **UI/UX**:
-    *   **Unified Mission Control Dashboard** (`unified_dashboard.py` - Port 5000): Comprehensive Streamlit-based interface with 4 tabs providing complete observability:
-        *   **Live Chat & Monitor**: Interactive chat with real-time safety visualization, demo scenario buttons, recent activity feed, and live statistics
-        *   **Trace Explorer**: Complete interaction history with filtering, search, and detailed inspection
-        *   **Analytics Dashboard**: Charts, statistics, performance metrics, and trend analysis
-        *   **System Status**: Health monitoring, configuration overview, and integration status
-    *   **Admin Dashboard** (`admin_dashboard.py` - Port 3000): Alternative Streamlit-based backend for trace review and analytics.
-    *   **Demo Finance Website** (`demo_website/` + `api.py` - Port 8000): Professional fintech UI with homepage, support page (embedding the chat widget), and interactive chat component. Includes pre-configured "Jailbreak Test Buttons" for demonstration purposes.
+    *   **Unified Mission Control Dashboard** (`unified_dashboard.py` - Port 5000): Comprehensive Streamlit-based interface with 4 tabs:
+        *   **Live Chat & Monitor**: Interactive chat with adversarial pattern warnings, PII leak visualization, test scenario buttons (happy path, jailbreak, role manipulation), and real-time activity feed showing adversarial attempts with 🚨 indicators
+        *   **Trace Explorer**: Complete interaction history with adversarial pattern badges, filtering, search, and detailed inspection of attack attempts
+        *   **Analytics Dashboard**: Charts showing block rates, adversarial attempt frequency, and PII leak prevention stats
+        *   **System Status**: Health monitoring with security event counts
+    *   **Demo SecureBank Website** (`demo_website/` + `api.py` - Port 8000): Professional banking UI with test scenarios including "Happy Path", "PII Request", "Jailbreak Attempt", and "Role Manipulation" buttons. Displays test credentials for Emma Johnson (card: 2356, postcode: SW1A 1AA) and Michael Chen (card: 7891, postcode: M1 1AA).
 
 ### Technical Implementation & Specifications
 
