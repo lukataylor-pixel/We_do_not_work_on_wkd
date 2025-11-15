@@ -144,9 +144,24 @@ Be friendly and professional, but security comes first."""
             Dictionary with response, safety info, adversarial detection, metadata, and trace_id
         """
         start_time = time.time()
+        decision_flow = []  # Track agent's decision-making stages
         
-        # Check for adversarial patterns in user input
+        # Stage 1: Input Safety Check
+        input_check_start = time.time()
         adversarial_check = self.safety_classifier.check_adversarial_input(user_message)
+        decision_flow.append({
+            'stage': 'input_safety_check',
+            'stage_name': 'Input Safety Check',
+            'timestamp': time.time(),
+            'duration': time.time() - input_check_start,
+            'status': 'blocked' if adversarial_check['is_adversarial'] else 'passed',
+            'details': {
+                'is_adversarial': adversarial_check['is_adversarial'],
+                'matched_patterns': adversarial_check.get('matched_patterns', []),
+                'pattern_count': adversarial_check.get('pattern_count', 0),
+                'total_patterns_checked': 54
+            }
+        })
         
         # Create LangFuse trace if enabled
         if self.enable_langfuse and self.langfuse_handler:
@@ -170,6 +185,9 @@ Be friendly and professional, but security comes first."""
         ]
         
         try:
+            # Stage 2: Agent Reasoning
+            reasoning_start = time.time()
+            
             # Invoke agent with LangFuse callbacks if enabled
             config = {}
             if self.enable_langfuse and self.langfuse_handler:
@@ -178,6 +196,33 @@ Be friendly and professional, but security comes first."""
             agent_response = self.agent.invoke({"messages": messages}, config=config)
             
             final_message = agent_response['messages'][-1].content
+            
+            # Extract tool calls if any
+            tool_calls = []
+            for msg in agent_response['messages']:
+                if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        tool_calls.append({
+                            'tool': tc.get('name', 'unknown'),
+                            'args': tc.get('args', {})
+                        })
+            
+            decision_flow.append({
+                'stage': 'agent_reasoning',
+                'stage_name': 'Agent Reasoning',
+                'timestamp': time.time(),
+                'duration': time.time() - reasoning_start,
+                'status': 'completed',
+                'details': {
+                    'message_count': len(agent_response['messages']),
+                    'tool_calls': tool_calls,
+                    'has_tool_calls': len(tool_calls) > 0,
+                    'response_preview': final_message[:200] if final_message else ''
+                }
+            })
+            
+            # Stage 3: Output Safety Check (PII Leak Prevention)
+            output_check_start = time.time()
             
             # Log safety check to LangFuse
             if self.enable_langfuse and self.langfuse_handler:
@@ -188,6 +233,22 @@ Be friendly and professional, but security comes first."""
                 )
             
             safety_result = self.safety_classifier.check_safety(final_message)
+            
+            decision_flow.append({
+                'stage': 'output_safety_check',
+                'stage_name': 'Output Safety Check (PII Leak Prevention)',
+                'timestamp': time.time(),
+                'duration': time.time() - output_check_start,
+                'status': 'blocked' if not safety_result['safe'] else 'passed',
+                'details': {
+                    'safe': safety_result['safe'],
+                    'method': safety_result.get('method', 'unknown'),
+                    'similarity_score': safety_result.get('similarity_score', 0.0),
+                    'threshold': self.safety_classifier.threshold,
+                    'matched_topic': safety_result.get('matched_topic', ''),
+                    'agent_attempted_response': final_message[:300] if not safety_result['safe'] else None
+                }
+            })
             
             # Update safety span with results
             if self.enable_langfuse and self.langfuse_handler:
@@ -205,11 +266,15 @@ Be friendly and professional, but security comes first."""
             
             processing_time = time.time() - start_time
             
+            # Stage 4: Final Decision
+            decision_start = time.time()
+            
             # Determine status based on BOTH adversarial detection and PII safety
             if adversarial_check['is_adversarial']:
                 # Adversarial input detected - mark as blocked regardless of output
                 response_text = "I cannot process this request. For security reasons, I can only help with legitimate account inquiries after proper verification."
                 status = "blocked"
+                block_reason = "adversarial_input"
                 
                 # Log blocked adversarial request
                 if self.enable_langfuse and self.langfuse_handler:
@@ -228,6 +293,7 @@ Be friendly and professional, but security comes first."""
                     safety_result
                 )
                 status = "blocked"
+                block_reason = "pii_leak"
                 
                 # Log blocked response to LangFuse
                 if self.enable_langfuse and self.langfuse_handler:
@@ -243,6 +309,22 @@ Be friendly and professional, but security comes first."""
                 # Both checks passed - safe response
                 response_text = final_message
                 status = "safe"
+                block_reason = None
+            
+            # Add final decision to flow
+            decision_flow.append({
+                'stage': 'final_decision',
+                'stage_name': 'Final Decision',
+                'timestamp': time.time(),
+                'duration': time.time() - decision_start,
+                'status': status,
+                'details': {
+                    'final_status': status,
+                    'block_reason': block_reason,
+                    'response_delivered': response_text[:200],
+                    'total_processing_time': processing_time
+                }
+            })
             
             interaction = {
                 'user_message': user_message,
@@ -253,7 +335,8 @@ Be friendly and professional, but security comes first."""
                 'adversarial_check': adversarial_check,
                 'processing_time': processing_time,
                 'timestamp': time.strftime("%Y-%m-%d %H:%M:%S"),
-                'trace_id': trace_id if self.enable_langfuse else None
+                'trace_id': trace_id if self.enable_langfuse else None,
+                'decision_flow': decision_flow  # Agent decision timeline for observability
             }
             
             self.interaction_log.append(interaction)

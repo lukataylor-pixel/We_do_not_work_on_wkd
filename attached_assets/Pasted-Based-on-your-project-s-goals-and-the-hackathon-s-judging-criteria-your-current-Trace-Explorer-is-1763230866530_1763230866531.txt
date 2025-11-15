@@ -1,0 +1,74 @@
+Based on your project's goals and the hackathon's judging criteria, your current "Trace Explorer" is a good log but not yet an observability tool. It shows what happened (Blocked/Safe) but not the full story of how or why the agent made its decisions.
+
+To impress the judges, especially for Track B (Agent Glass Box), you need to visualize the agent's entire internal process.
+
+Here’s a breakdown of the problem and a proposed visualization tool that will directly target the judging criteria.
+
+🎯 The Problem: A Log, Not a "Glass Box"
+Your current UI shows the final result of an interaction. The "BLOCKED" screenshot shows Detection Method: embedding_similarity and a 38.67% score, but it's a black box.
+
+The judging criteria for Track B demand that you:
+
+
+"Follow the trajectory" 
+
+
+"Capture every decision, memory update, and tool interaction" 
+
+
+"Reveal reasoning chains and decision paths" 
+
+Provide "human-interpretable explanations" and "true auditability" 
+
+Your UI isn't showing the LangGraph state machine in action. It's not explaining what the 38.67% was similar to, nor does it show the initial "Adversarial Pattern Detection" check that your README mentions.
+
+💡 The Solution: The "Agent Decision Flow" Visualizer
+I suggest replacing the static expanded view (Screenshot 1) with a dynamic, multi-panel "Agent Decision Flow" visualizer. When a judge clicks on any trace in your explorer, this tool would open.
+
+It would consist of two main parts:
+
+1. The "Trajectory" Timeline
+Instead of just text, you'd show a horizontal flowchart at the top of the panel. This directly visualizes your LangGraph's path and hits the "reveal reasoning chains" criterion. Each node in the flow would be clickable.
+
+Example Flow for the "BLOCKED" Query:
+
+User Query → ① Input Safety Check → ② Agent Reasoning → ③ Tool Call (Attempted) → ④ Output PII Check → ⑤ Final Response
+
+2. The "Explainability" Context Panel
+When a judge clicks any node on the timeline (e.g., ④ Output PII Check), this panel below it updates with the details for that specific step. This provides the "human-interpretable explanations".
+
+Here’s what it would show for the "BLOCKED" example:
+
+Click ① Input Safety Check:
+
+Status: PASSED
+
+Analysis: "Checked user query against 54 adversarial patterns. No jailbreak or direct PII request patterns detected."
+
+(This shows your first defense layer is working).
+
+Click ② Agent Reasoning:
+
+Intent: fetch_all_customers
+
+Analysis: "User query was mapped to the getCustomerDetails tool. The agent is attempting to retrieve all records."
+
+Click ④ Output PII Check (This is the most important!):
+
+Status: BLOCKED
+
+Defense Layer: Output Filtering (PII Leak Prevention)
+
+Detection Method: Semantic Similarity
+
+Agent's Internal Response (What it tried to say):
+
+"Here is the list of all 30 customers: John Smith, Acct: ...; Sarah Johnson, Acct: ...; Michael Chen, Acct: ... [etc.]"
+
+Explainability Visualization (The "Impress the Judges" part):
+
+Instead of just "Similarity: 38.67%", you'd show why.
+
+"Similarity Evidence: This response showed a 38.67% semantic similarity to the customer_embeddings.pkl knowledge base. The agent's response was attempting to leak protected data vectors."
+
+Visual Diff: Show a "diff" view that highlights the agent's internal response (e.g., "John Smith...") in red, showing it matches the protected data in your customer_knowledge_base.csv.
