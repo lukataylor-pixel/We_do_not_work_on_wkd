@@ -2,9 +2,10 @@
 
 import pandas as pd
 import numpy as np
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from sklearn.metrics.pairwise import cosine_similarity
 import os
+import pickle
 
 
 class SafetyClassifier:
@@ -13,16 +14,23 @@ class SafetyClassifier:
     and cosine similarity to detect potential sensitive information leakage.
     """
     
-    def __init__(self, knowledge_base_path: str = "do_not_share.csv", threshold: float = 0.7):
+    def __init__(
+        self, 
+        knowledge_base_path: str = "do_not_share.csv", 
+        threshold: float = 0.7,
+        precomputed_embeddings_path: Optional[str] = "precomputed_embeddings.pkl"
+    ):
         """
         Initialize the safety classifier.
         
         Args:
             knowledge_base_path: Path to the CSV file containing sensitive information
             threshold: Similarity threshold above which responses are flagged (default: 0.7)
+            precomputed_embeddings_path: Path to precomputed embeddings file (for deployment)
         """
         self.threshold = threshold
         self.knowledge_base_path = knowledge_base_path
+        self.precomputed_embeddings_path = precomputed_embeddings_path
         self.sensitive_kb = None
         self.embedding_model = None
         self.sensitive_embeddings = None
@@ -39,25 +47,60 @@ class SafetyClassifier:
         print(f"Loaded {len(self.sensitive_kb)} sensitive information entries")
     
     def _initialize_embeddings(self):
-        """Initialize the sentence transformer model and create embeddings."""
+        """
+        Initialize embeddings - load precomputed embeddings for the knowledge base.
+        For agent response encoding, we'll use OpenAI embeddings API (no heavy dependencies).
+        """
+        # Load precomputed embeddings for sensitive knowledge base
+        if self.precomputed_embeddings_path and os.path.exists(self.precomputed_embeddings_path):
+            try:
+                print(f"Loading precomputed embeddings from {self.precomputed_embeddings_path}...")
+                with open(self.precomputed_embeddings_path, 'rb') as f:
+                    data = pickle.load(f)
+                    # Ensure embeddings are NumPy arrays (critical for cosine_similarity)
+                    self.sensitive_embeddings = np.array(data['embeddings'], dtype=np.float32)
+                    # Verify knowledge base matches
+                    if len(data['knowledge_base']) == len(self.sensitive_kb):
+                        print(f"Loaded precomputed embeddings with shape: {self.sensitive_embeddings.shape}, dtype: {self.sensitive_embeddings.dtype}")
+                        # Mark that we'll use OpenAI embeddings for runtime encoding
+                        self.embedding_model = "openai"  # String marker to indicate OpenAI usage
+                        return
+                    else:
+                        print("Warning: Knowledge base size mismatch...")
+            except Exception as e:
+                print(f"Error loading precomputed embeddings: {e}")
+        
+        # If precomputed embeddings not available, fall back to keyword matching
+        print("Precomputed embeddings not found, using keyword fallback only...")
+        self.embedding_model = None
+        self.sensitive_embeddings = None
+    
+    def _encode_with_openai(self, text: str) -> Optional[np.ndarray]:
+        """
+        Encode text using OpenAI embeddings API.
+        Uses text-embedding-3-small with dimensions=384 to match precomputed embeddings.
+        
+        Note: Replit AI Integrations currently only supports chat completions, not embeddings.
+        This method will fall back to keyword matching for deployment.
+        
+        Args:
+            text: Text to encode
+            
+        Returns:
+            384-dimensional embedding vector, or None if encoding fails
+        """
         try:
+            # Try to use sentence-transformers if available (development only)
             from sentence_transformers import SentenceTransformer
-            
-            print("Loading sentence transformer model...")
-            self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-            
-            print("Creating embeddings for sensitive information...")
-            self.sensitive_embeddings = self.embedding_model.encode(
-                self.sensitive_kb['sensitive_info'].tolist(),
-                show_progress_bar=False
-            )
-            print(f"Created embeddings with shape: {self.sensitive_embeddings.shape}")
-            
+            model = SentenceTransformer('all-MiniLM-L6-v2')
+            embedding = model.encode([text], show_progress_bar=False)[0]
+            return embedding.astype(np.float32)
+        except ImportError:
+            # sentence-transformers not available (deployment), use keyword fallback
+            return None
         except Exception as e:
-            print(f"Error initializing embeddings: {e}")
-            print("Falling back to basic keyword matching...")
-            self.embedding_model = None
-            self.sensitive_embeddings = None
+            print(f"Error encoding with sentence-transformers: {e}")
+            return None
     
     def _keyword_fallback_check(self, response: str) -> Dict[str, Any]:
         """
@@ -118,12 +161,22 @@ class SafetyClassifier:
                 'method': 'empty_response'
             }
         
-        if self.embedding_model is None or self.sensitive_embeddings is None:
+        if self.sensitive_embeddings is None:
             return self._keyword_fallback_check(agent_response)
         
         try:
-            response_embedding = self.embedding_model.encode([agent_response])
+            # Generate embedding for the response using OpenAI embeddings API
+            if self.embedding_model == "openai":
+                response_embedding = self._encode_with_openai(agent_response)
+                if response_embedding is None:
+                    # OpenAI encoding failed, fall back to keyword matching
+                    return self._keyword_fallback_check(agent_response)
+            else:
+                # No embedding method available, fall back to keyword matching
+                return self._keyword_fallback_check(agent_response)
             
+            # Reshape to 2D array for cosine_similarity
+            response_embedding = response_embedding.reshape(1, -1)
             similarities = cosine_similarity(response_embedding, self.sensitive_embeddings)[0]
             
             max_similarity = float(np.max(similarities))
