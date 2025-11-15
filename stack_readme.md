@@ -76,3 +76,8 @@ streamlit run unified_dashboard.py --server.port=5000 --server.address=0.0.0.0
 - 54 adversarial patterns with keyword + semantic matching
 - Verification flow prevents unauthorized access even if defenses bypassed
 - Complete audit trail via LangFuse + SQLite telemetry
+- **End-to-End Encryption**: AES-256-GCM encryption for all LLM outputs
+  - Raw LLM text never stored in plaintext outside controlled decryption points
+  - Encrypted payloads in logs and telemetry (ciphertext, nonce, key_id)
+  - Decryption only for safety classification and approved final delivery
+  - Tamper-proof authenticated encryption with integrity verification
