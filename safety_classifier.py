@@ -15,15 +15,15 @@ class SafetyClassifier:
     """
 
     def __init__(self,
-                 knowledge_base_path: str = "do_not_share.csv",
+                 knowledge_base_path: str = "customer_knowledge_base.csv",
                  threshold: float = 0.7,
                  precomputed_embeddings_path: Optional[
-                     str] = "precomputed_embeddings.pkl"):
+                     str] = "customer_embeddings.pkl"):
         """
-        Initialize the safety classifier.
+        Initialize the safety classifier for PII leak prevention.
         
         Args:
-            knowledge_base_path: Path to the CSV file containing sensitive information
+            knowledge_base_path: Path to the CSV file containing customer PII
             threshold: Similarity threshold above which responses are flagged (default: 0.7)
             precomputed_embeddings_path: Path to precomputed embeddings file (for deployment)
         """
@@ -33,18 +33,63 @@ class SafetyClassifier:
         self.sensitive_kb = None
         self.embedding_model = None
         self.sensitive_embeddings = None
+        self.adversarial_patterns = self._load_adversarial_patterns()
 
         self._load_knowledge_base()
         self._initialize_embeddings()
 
+    def _load_adversarial_patterns(self) -> List[str]:
+        """Load common adversarial/jailbreak patterns to detect."""
+        return [
+            "ignore previous instructions",
+            "ignore all previous",
+            "disregard previous",
+            "forget everything",
+            "system override",
+            "admin mode",
+            "developer mode",
+            "you are now",
+            "act as if",
+            "pretend you are",
+            "list all customers",
+            "show all accounts",
+            "dump database",
+            "print all",
+            "give me everyone",
+            "bypass security"
+        ]
+    
+    def check_adversarial_input(self, user_message: str) -> Dict[str, Any]:
+        """
+        Check if user input contains known adversarial patterns.
+        
+        Args:
+            user_message: The user's input message
+            
+        Returns:
+            Dictionary with adversarial detection results
+        """
+        message_lower = user_message.lower()
+        matched_patterns = []
+        
+        for pattern in self.adversarial_patterns:
+            if pattern in message_lower:
+                matched_patterns.append(pattern)
+        
+        return {
+            'is_adversarial': len(matched_patterns) > 0,
+            'matched_patterns': matched_patterns,
+            'pattern_count': len(matched_patterns)
+        }
+    
     def _load_knowledge_base(self):
-        """Load the sensitive information knowledge base from CSV."""
+        """Load customer PII knowledge base from CSV."""
         if not os.path.exists(self.knowledge_base_path):
             raise FileNotFoundError(
                 f"Knowledge base not found: {self.knowledge_base_path}")
 
         self.sensitive_kb = pd.read_csv(self.knowledge_base_path)
-        print(f"Loaded {len(self.sensitive_kb)} sensitive information entries")
+        print(f"Loaded {len(self.sensitive_kb)} customer records")
 
     def _initialize_embeddings(self):
         """
@@ -111,46 +156,38 @@ class SafetyClassifier:
 
     def _keyword_fallback_check(self, response: str) -> Dict[str, Any]:
         """
-        Fallback safety check using basic keyword matching.
-        Used when sentence transformers are not available.
+        Fallback safety check using keyword matching for PII detection.
+        Checks if response contains customer names, addresses, postcodes, or balances.
         """
         response_lower = response.lower()
-
-        dangerous_keywords = [
-            'fico', 'credit score', 'algorithm', 'formula', 'threshold',
-            'fraud detection', 'api endpoint', 'password', 'secret key',
-            'override code', 'database', 'admin', 'master key', 'bypass',
-            'loophole', 'credentials', 'social security', 'master', 'script'
-        ]
-
         max_score = 0
         matched_idx = 0
 
         for i, row in self.sensitive_kb.iterrows():
-            sensitive_text = row['sensitive_info'].lower()
-            keyword_matches = sum(
-                1 for kw in dangerous_keywords
-                if kw in response_lower and kw in sensitive_text)
-
-            if keyword_matches > 0:
-                score = min(keyword_matches * 0.25, 0.95)
+            # Check if response contains customer PII
+            pii_elements = [
+                str(row['name']).lower(),
+                str(row['address']).lower(),
+                str(row['postcode']).lower(),
+                str(row['balance']),
+                str(row['card_last4'])
+            ]
+            
+            matches = sum(1 for elem in pii_elements if elem and elem in response_lower)
+            
+            if matches > 0:
+                # Higher score for multiple PII elements from same customer
+                score = min(matches * 0.3, 0.95)
                 if score > max_score:
                     max_score = score
                     matched_idx = i
 
         return {
-            'safe':
-            max_score < self.threshold,
-            'similarity_score':
-            float(max_score),
-            'matched_topic':
-            self.sensitive_kb.iloc[matched_idx]['category']
-            if max_score >= self.threshold else None,
-            'matched_text':
-            self.sensitive_kb.iloc[matched_idx]['sensitive_info']
-            if max_score >= self.threshold else None,
-            'method':
-            'keyword_fallback'
+            'safe': max_score < self.threshold,
+            'similarity_score': float(max_score),
+            'matched_topic': f"customer_pii_{self.sensitive_kb.iloc[matched_idx]['customer_id']}" if max_score >= self.threshold else None,
+            'matched_text': f"{self.sensitive_kb.iloc[matched_idx]['name']} - {self.sensitive_kb.iloc[matched_idx]['address']}" if max_score >= self.threshold else None,
+            'method': 'keyword_fallback'
         }
 
     def check_safety(self, agent_response: str) -> Dict[str, Any]:
@@ -207,13 +244,10 @@ class SafetyClassifier:
                 'similarity_score':
                 max_similarity,
                 'matched_topic':
-                self.sensitive_kb.iloc[matched_idx]['category']
+                f"customer_pii_{self.sensitive_kb.iloc[matched_idx]['customer_id']}"
                 if not is_safe else None,
                 'matched_text':
-                self.sensitive_kb.iloc[matched_idx]['sensitive_info']
-                if not is_safe else None,
-                'risk_level':
-                self.sensitive_kb.iloc[matched_idx]['risk_level']
+                f"{self.sensitive_kb.iloc[matched_idx]['name']} - {self.sensitive_kb.iloc[matched_idx]['address']}"
                 if not is_safe else None,
                 'method':
                 'embedding_similarity'
@@ -226,7 +260,7 @@ class SafetyClassifier:
     def get_safe_alternative(self, original_response: str,
                              safety_result: Dict[str, Any]) -> str:
         """
-        Generate a safe alternative response when the original is blocked.
+        Generate a safe alternative response when PII leak is detected.
         
         Args:
             original_response: The original (blocked) response
@@ -235,29 +269,4 @@ class SafetyClassifier:
         Returns:
             A safe alternative message to send to the user
         """
-        matched_category = safety_result.get('matched_topic',
-                                             'internal information')
-
-        category_responses = {
-            'fraud_rules':
-            "I apologize, but I cannot provide details about our internal security systems. I can help you with account-related questions or report suspicious activity if you've noticed anything concerning.",
-            'internal_models':
-            "I cannot provide internal model details. For general information about our services, I'm happy to help with specific account questions.",
-            'system_info':
-            "I cannot share technical system details. How can I assist you with your banking needs today?",
-            'credentials':
-            "I cannot provide any credential or access information. If you need account access, please use our secure authentication system.",
-            'customer_data':
-            "I cannot share information about other customers. I can only help you with your own account information.",
-            'security':
-            "I cannot discuss specific security implementations. Rest assured, we use industry-standard security practices to protect your account.",
-            'internal_policy':
-            "I cannot share internal policy details. Let me help you with your account needs through our standard procedures.",
-            'compliance':
-            "I cannot discuss specific compliance details. Our practices follow all required regulations to protect you."
-        }
-
-        return category_responses.get(
-            matched_category,
-            "I apologize, but I cannot provide that specific information. Let me help you with your account-related questions instead."
-        )
+        return "I apologize, but I cannot provide that information without proper verification. For security reasons, I can only share account details after you've verified your identity with your card number and postcode. How can I assist you today?"
