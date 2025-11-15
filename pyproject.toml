@@ -4,14 +4,19 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = "==3.11.*"
 dependencies = [
+    "fastapi>=0.121.2",
     "langchain>=1.0.7",
+    "langchain-core>=1.0.5",
     "langchain-openai>=1.0.3",
+    "langfuse>=3.10.0",
     "langgraph>=1.0.3",
+    "numpy>=2.3.4",
     "openai>=2.8.0",
     "pandas>=2.3.3",
     "scikit-learn>=1.7.2",
     "sentence-transformers",
     "streamlit>=1.51.0",
+    "uvicorn>=0.38.0",
 ]
 
 [[tool.uv.index]]

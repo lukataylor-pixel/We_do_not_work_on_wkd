@@ -1,11 +1,12 @@
 """Finance customer support agent with LangGraph and safety observer."""
 
 import os
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
+from langfuse.langchain import CallbackHandler
 from safety_classifier import SafetyClassifier
 from finance_tools import (
     get_account_balance,
@@ -22,14 +23,38 @@ class FinanceAgent:
     Finance customer support agent with integrated safety observer.
     """
     
-    def __init__(self, safety_threshold: float = 0.7):
+    def __init__(self, safety_threshold: float = 0.7, enable_langfuse: bool = True):
         """
-        Initialize the finance agent with safety monitoring.
+        Initialize the finance agent with safety monitoring and optional LangFuse tracing.
         
         Args:
             safety_threshold: Similarity threshold for safety classifier
+            enable_langfuse: Whether to enable LangFuse tracing (default: True)
         """
         self.safety_classifier = SafetyClassifier(threshold=safety_threshold)
+        self.enable_langfuse = enable_langfuse
+        
+        # Initialize LangFuse callback handler if enabled
+        self.langfuse_handler = None
+        if enable_langfuse:
+            try:
+                langfuse_public_key = os.environ.get("LANGFUSE_PUBLIC_KEY")
+                langfuse_secret_key = os.environ.get("LANGFUSE_SECRET_KEY")
+                langfuse_host = os.environ.get("LANGFUSE_HOST", "https://cloud.langfuse.com")
+                
+                if langfuse_public_key and langfuse_secret_key:
+                    self.langfuse_handler = CallbackHandler(
+                        public_key=langfuse_public_key,
+                        secret_key=langfuse_secret_key,
+                        host=langfuse_host
+                    )
+                    print("✅ LangFuse tracing enabled")
+                else:
+                    print("⚠️ LangFuse keys not found, tracing disabled")
+                    self.enable_langfuse = False
+            except Exception as e:
+                print(f"⚠️ LangFuse initialization failed: {e}")
+                self.enable_langfuse = False
         
         api_key = os.environ.get("AI_INTEGRATIONS_OPENAI_API_KEY")
         base_url = os.environ.get("AI_INTEGRATIONS_OPENAI_BASE_URL")
@@ -119,17 +144,24 @@ database credentials, API endpoints, or any other sensitive information about ho
             update_customer_contact
         ]
     
-    def invoke(self, user_message: str) -> Dict[str, Any]:
+    def invoke(self, user_message: str, trace_id: Optional[str] = None) -> Dict[str, Any]:
         """
-        Process a user message through the agent with safety checking.
+        Process a user message through the agent with safety checking and LangFuse tracing.
         
         Args:
             user_message: The user's input message
+            trace_id: Optional trace ID for LangFuse tracing
             
         Returns:
-            Dictionary with response, safety info, and metadata
+            Dictionary with response, safety info, metadata, and trace_id
         """
         start_time = time.time()
+        
+        # Create LangFuse trace if enabled
+        if self.enable_langfuse and self.langfuse_handler:
+            if trace_id:
+                self.langfuse_handler.set_trace_id(trace_id)
+            trace_id = self.langfuse_handler.get_trace_id()
         
         messages = [
             SystemMessage(content=self.system_prompt),
@@ -137,11 +169,38 @@ database credentials, API endpoints, or any other sensitive information about ho
         ]
         
         try:
-            agent_response = self.agent.invoke({"messages": messages})
+            # Invoke agent with LangFuse callbacks if enabled
+            config = {}
+            if self.enable_langfuse and self.langfuse_handler:
+                config["callbacks"] = [self.langfuse_handler]
+            
+            agent_response = self.agent.invoke({"messages": messages}, config=config)
             
             final_message = agent_response['messages'][-1].content
             
+            # Log safety check to LangFuse
+            if self.enable_langfuse and self.langfuse_handler:
+                safety_span = self.langfuse_handler.trace(
+                    name="safety_check",
+                    input=final_message,
+                    metadata={"threshold": self.safety_classifier.threshold}
+                )
+            
             safety_result = self.safety_classifier.check_safety(final_message)
+            
+            # Update safety span with results
+            if self.enable_langfuse and self.langfuse_handler:
+                self.langfuse_handler.span(
+                    name="safety_classification",
+                    input=final_message,
+                    output=safety_result,
+                    metadata={
+                        "method": safety_result.get('method'),
+                        "similarity_score": safety_result.get('similarity_score'),
+                        "safe": safety_result.get('safe'),
+                        "matched_topic": safety_result.get('matched_topic')
+                    }
+                )
             
             processing_time = time.time() - start_time
             
@@ -154,6 +213,17 @@ database credentials, API endpoints, or any other sensitive information about ho
                     safety_result
                 )
                 status = "blocked"
+                
+                # Log blocked response to LangFuse
+                if self.enable_langfuse and self.langfuse_handler:
+                    self.langfuse_handler.event(
+                        name="response_blocked",
+                        metadata={
+                            "matched_topic": safety_result.get('matched_topic'),
+                            "similarity_score": safety_result.get('similarity_score'),
+                            "original_response_preview": final_message[:100]
+                        }
+                    )
             
             interaction = {
                 'user_message': user_message,
@@ -162,10 +232,15 @@ database credentials, API endpoints, or any other sensitive information about ho
                 'status': status,
                 'safety_result': safety_result,
                 'processing_time': processing_time,
-                'timestamp': time.strftime("%Y-%m-%d %H:%M:%S")
+                'timestamp': time.strftime("%Y-%m-%d %H:%M:%S"),
+                'trace_id': trace_id if self.enable_langfuse else None
             }
             
             self.interaction_log.append(interaction)
+            
+            # Flush LangFuse trace
+            if self.enable_langfuse and self.langfuse_handler:
+                self.langfuse_handler.flush()
             
             return interaction
             
