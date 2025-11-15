@@ -1,6 +1,5 @@
 import streamlit as st
 import time
-from finance_agent import FinanceAgent
 from shared_telemetry import SharedTelemetry
 
 st.set_page_config(
@@ -10,14 +9,19 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-if 'agent' not in st.session_state:
-    st.session_state.agent = FinanceAgent()
+def get_agent():
+    """Lazy load the agent to avoid heavy initialization at startup"""
+    if 'agent' not in st.session_state:
+        with st.spinner("🔄 Initializing Agent..."):
+            from finance_agent import FinanceAgent
+            st.session_state.agent = FinanceAgent()
+    return st.session_state.agent
+
 if 'chat_history' not in st.session_state:
     st.session_state.chat_history = []
 if 'telemetry' not in st.session_state:
     st.session_state.telemetry = SharedTelemetry()
 
-agent = st.session_state.agent
 telemetry = st.session_state.telemetry
 
 st.sidebar.title("🛡️ Guardian Agent")
@@ -99,7 +103,7 @@ with tab1:
         if send_button and user_input:
             with st.spinner("🤔 Agent thinking..."):
                 start_time = time.time()
-                result = agent.invoke(user_input)
+                result = get_agent().invoke(user_input)
                 processing_time = time.time() - start_time
             
             adversarial_check = result.get('adversarial_check', {})
