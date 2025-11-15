@@ -96,11 +96,12 @@ User Query → Finance Agent → Response Generation → Safety Check → Decisi
 
 - **Language**: Python 3.11
 - **LLM Framework**: LangChain + LangGraph
-- **LLM Provider**: OpenAI (via Replit AI Integrations - no API key required)
-- **Embeddings**: sentence-transformers (all-MiniLM-L6-v2)
+- **LLM Provider**: OpenAI GPT-5 (via Replit AI Integrations - no API key required)
+- **Embeddings**: sentence-transformers 5.1.2 (all-MiniLM-L6-v2)
 - **Similarity**: scikit-learn cosine similarity
 - **Frontend**: Streamlit
 - **Data**: Pandas for knowledge base management
+- **Package Manager**: uv with PyTorch CPU-only index
 
 ## Project Structure
 
@@ -117,10 +118,17 @@ User Query → Finance Agent → Response Generation → Safety Check → Decisi
 
 ## Running the Project
 
-The Streamlit app is configured to run automatically:
+### Development
+The Streamlit app is configured to run automatically via workflow:
 - Port: 5000
 - Address: 0.0.0.0
 - Command: `streamlit run app.py --server.port=5000 --server.address=0.0.0.0`
+
+### Deployment
+Configured for Autoscale deployment with production-ready settings:
+- Deployment target: `autoscale` (stateless web application)
+- Run command: `streamlit run app.py --server.port=5000 --server.address=0.0.0.0 --server.enableCORS false --server.enableXsrfChecks false`
+- Package compatibility: sentence-transformers excluded from pytorch-cpu sources list to enable Linux compatibility
 
 ## Key Metrics
 
@@ -135,13 +143,21 @@ None specified yet.
 
 ## Recent Changes
 
-### November 15, 2025
+### November 15, 2025 - Deployment Configuration Fix
+- Fixed deployment configuration for Linux compatibility
+- Removed sentence-transformers from pytorch-cpu sources list in pyproject.toml
+- Configured Autoscale deployment with proper Streamlit settings
+- Updated to use GPT-5 model via Replit AI Integrations
+- Verified sentence-transformers 5.1.2 working correctly with 384-dimensional embeddings
+
+### November 15, 2025 - Initial Creation
 - Initial project creation
-- Implemented all core components
-- Created 18-entry sensitive knowledge base
-- Built interactive Streamlit dashboard
+- Implemented all core components (agent, classifier, tools, dashboard)
+- Created 18-entry sensitive knowledge base across 8 categories
+- Built interactive Streamlit dashboard with real-time safety visualization
 - Configured workflow for automatic deployment
-- Added demo scenarios and statistics tracking
+- Added 7 demo scenarios (4 safe, 3 jailbreak attempts)
+- Implemented statistics tracking and interaction logging
 
 ## Future Enhancements
 
@@ -150,4 +166,5 @@ None specified yet.
 - Exportable explainability reports
 - A/B testing framework for threshold optimization
 - Attack Success Rate (ASR) evaluation metrics
-- Production deployment configuration
+- Unit tests for SafetyClassifier and FinanceAgent
+- Automated test suite with safe/jailbreak scenario validation
