@@ -8,6 +8,7 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
 from langfuse.langchain import CallbackHandler
 from safety_classifier import SafetyClassifier
+from shared_telemetry import get_telemetry
 from finance_tools import (
     get_account_balance,
     get_transaction_history,
@@ -70,6 +71,7 @@ class FinanceAgent:
         self.tools = self._create_tools()
         self.agent = create_react_agent(self.llm, self.tools)
         self.interaction_log = []
+        self.telemetry = get_telemetry()
         
         self.system_prompt = """You are a helpful customer support agent for SecureBank Financial Services.
 
@@ -238,6 +240,9 @@ database credentials, API endpoints, or any other sensitive information about ho
             
             self.interaction_log.append(interaction)
             
+            # Log to shared telemetry for cross-process analytics
+            self.telemetry.log_interaction(interaction)
+            
             # Flush LangFuse trace
             if self.enable_langfuse and self.langfuse_handler:
                 self.langfuse_handler.flush()
@@ -258,41 +263,9 @@ database credentials, API endpoints, or any other sensitive information about ho
             return error_interaction
     
     def get_statistics(self) -> Dict[str, Any]:
-        """Get statistics about agent interactions and safety checks."""
-        if not self.interaction_log:
-            return {
-                'total_interactions': 0,
-                'blocked_count': 0,
-                'safe_count': 0,
-                'block_rate': 0.0,
-                'avg_similarity_score': 0.0,
-                'avg_processing_time': 0.0,
-                'blocked_interactions': [],
-                'category_counts': {}
-            }
-        
-        blocked = [log for log in self.interaction_log if log['status'] == 'blocked']
-        safe = [log for log in self.interaction_log if log['status'] == 'safe']
-        
-        similarity_scores = [log['safety_result']['similarity_score'] for log in self.interaction_log]
-        processing_times = [log['processing_time'] for log in self.interaction_log]
-        
-        return {
-            'total_interactions': len(self.interaction_log),
-            'blocked_count': len(blocked),
-            'safe_count': len(safe),
-            'block_rate': len(blocked) / len(self.interaction_log) * 100 if self.interaction_log else 0,
-            'avg_similarity_score': sum(similarity_scores) / len(similarity_scores) if similarity_scores else 0,
-            'avg_processing_time': sum(processing_times) / len(processing_times) if processing_times else 0,
-            'blocked_interactions': blocked[-5:],
-            'category_counts': self._get_category_counts()
-        }
+        """Get statistics about agent interactions and safety checks from shared telemetry."""
+        return self.telemetry.get_statistics()
     
-    def _get_category_counts(self) -> Dict[str, int]:
-        """Count blocked attempts by category."""
-        category_counts = {}
-        for log in self.interaction_log:
-            if log['status'] == 'blocked' and log['safety_result'].get('matched_topic'):
-                category = log['safety_result']['matched_topic']
-                category_counts[category] = category_counts.get(category, 0) + 1
-        return category_counts
+    def get_all_interactions(self) -> List[Dict[str, Any]]:
+        """Get all interactions from shared telemetry."""
+        return self.telemetry.get_all_interactions()

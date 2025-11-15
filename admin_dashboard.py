@@ -216,8 +216,8 @@ elif page == "🔍 Trace Explorer":
     
     st.markdown("---")
     
-    # Get all interactions
-    interactions = agent.interaction_log.copy()
+    # Get all interactions from shared telemetry
+    interactions = agent.get_all_interactions()
     
     # Apply filters
     if status_filter != "All":
@@ -321,8 +321,8 @@ elif page == "📈 Analytics":
     # Timing analysis
     st.subheader("⏱️ Performance Analysis")
     
-    if agent.interaction_log:
-        times = [log['processing_time'] for log in agent.interaction_log]
+    if agent.get_all_interactions():
+        times = [log['processing_time'] for log in agent.get_all_interactions()]
         
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -369,7 +369,7 @@ elif page == "⚙️ Settings":
     st.subheader("🗑️ Data Management")
     
     if st.button("Clear Interaction Log", type="secondary"):
-        agent.interaction_log = []
+        agent.telemetry.clear_all()
         st.success("✅ Interaction log cleared")
         st.rerun()
     
