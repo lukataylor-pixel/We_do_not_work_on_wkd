@@ -128,6 +128,8 @@ with tab1:
             status_emoji = "🛡️ BLOCKED" if status == 'blocked' else "✅ SAFE"
             status_color = "red" if status == 'blocked' else "green"
             
+            safety_result = interaction.get('safety_result', {})
+            
             with st.expander(f"{status_emoji} - {interaction['timestamp'][:19]}", expanded=(i==0)):
                 st.markdown(f"**Status:** <span style='color:{status_color};font-weight:bold'>{status.upper()}</span>", unsafe_allow_html=True)
                 
@@ -135,20 +137,22 @@ with tab1:
                 st.info(interaction['user_message'][:200] + "..." if len(interaction['user_message']) > 200 else interaction['user_message'])
                 
                 st.markdown("**Agent Response:**")
-                st.success(interaction['agent_response'][:200] + "..." if len(interaction['agent_response']) > 200 else interaction['agent_response'])
+                response = interaction.get('final_response', '')
+                st.success(response[:200] + "..." if len(response) > 200 else response)
                 
                 col_a, col_b, col_c = st.columns(3)
                 with col_a:
-                    score = interaction.get('similarity_score', 0)
+                    score = safety_result.get('similarity_score', 0)
                     score_color = "red" if score > 0.7 else "orange" if score > 0.5 else "green"
                     st.markdown(f"**Similarity:** <span style='color:{score_color}'>{score:.2%}</span>", unsafe_allow_html=True)
                 with col_b:
                     st.markdown(f"**Time:** {interaction.get('processing_time', 0):.2f}s")
                 with col_c:
-                    st.markdown(f"**Method:** {interaction.get('method', 'N/A')}")
+                    st.markdown(f"**Method:** {safety_result.get('method', 'N/A')}")
                 
-                if status == 'blocked' and interaction.get('matched_category'):
-                    st.warning(f"⚠️ Category: {interaction['matched_category']}")
+                matched_category = safety_result.get('matched_category') or safety_result.get('matched_topic')
+                if status == 'blocked' and matched_category:
+                    st.warning(f"⚠️ Category: {matched_category}")
         
         st.markdown("---")
         st.markdown("### 📈 Live Statistics")
@@ -187,7 +191,7 @@ with tab2:
         all_interactions = [
             i for i in all_interactions
             if search_query.lower() in i['user_message'].lower() 
-            or search_query.lower() in i['agent_response'].lower()
+            or search_query.lower() in i.get('final_response', '').lower()
         ]
     
     all_interactions = sorted(
@@ -202,13 +206,15 @@ with tab2:
         status = interaction['status']
         status_badge = "🛡️ BLOCKED" if status == 'blocked' else "✅ SAFE"
         
+        safety_result = interaction.get('safety_result', {})
+        
         with st.expander(f"{status_badge} [{interaction['timestamp'][:19]}] - {interaction['user_message'][:60]}..."):
             col_info1, col_info2, col_info3 = st.columns(3)
             
             with col_info1:
                 st.markdown(f"**Status:** {status.upper()}")
             with col_info2:
-                st.markdown(f"**Similarity:** {interaction.get('similarity_score', 0):.2%}")
+                st.markdown(f"**Similarity:** {safety_result.get('similarity_score', 0):.2%}")
             with col_info3:
                 st.markdown(f"**Processing:** {interaction.get('processing_time', 0):.2f}s")
             
@@ -218,12 +224,13 @@ with tab2:
             st.code(interaction['user_message'], language=None)
             
             st.markdown("**🤖 Agent Response:**")
-            st.code(interaction['agent_response'], language=None)
+            st.code(interaction.get('final_response', ''), language=None)
             
-            if interaction.get('matched_category'):
-                st.warning(f"⚠️ **Matched Category:** {interaction['matched_category']}")
+            matched_category = safety_result.get('matched_category') or safety_result.get('matched_topic')
+            if matched_category:
+                st.warning(f"⚠️ **Matched Category:** {matched_category}")
             
-            st.markdown(f"**🔧 Detection Method:** {interaction.get('method', 'N/A')}")
+            st.markdown(f"**🔧 Detection Method:** {safety_result.get('method', 'N/A')}")
             
             if interaction.get('trace_id'):
                 st.markdown(f"**🔗 LangFuse Trace ID:** `{interaction['trace_id']}`")
@@ -259,9 +266,11 @@ with tab3:
         st.markdown("### 📂 Blocked by Category")
         blocked_by_category = {}
         for interaction in all_interactions:
-            if interaction['status'] == 'blocked' and interaction.get('matched_category'):
-                cat = interaction['matched_category']
-                blocked_by_category[cat] = blocked_by_category.get(cat, 0) + 1
+            if interaction['status'] == 'blocked':
+                safety_result = interaction.get('safety_result', {})
+                cat = safety_result.get('matched_category') or safety_result.get('matched_topic')
+                if cat:
+                    blocked_by_category[cat] = blocked_by_category.get(cat, 0) + 1
         
         if blocked_by_category:
             st.bar_chart(blocked_by_category)
@@ -279,7 +288,7 @@ with tab3:
         st.metric("Avg Similarity Score", f"{stats['avg_similarity_score']:.2%}")
     with perf_cols[2]:
         if all_interactions:
-            max_sim = max(i.get('similarity_score', 0) for i in all_interactions)
+            max_sim = max(i.get('safety_result', {}).get('similarity_score', 0) for i in all_interactions)
             st.metric("Max Similarity Detected", f"{max_sim:.2%}")
         else:
             st.metric("Max Similarity Detected", "N/A")
@@ -290,12 +299,14 @@ with tab3:
     if all_interactions:
         table_data = []
         for i in sorted(all_interactions, key=lambda x: x['timestamp'], reverse=True)[:20]:
+            safety_result = i.get('safety_result', {})
+            matched_category = safety_result.get('matched_category') or safety_result.get('matched_topic', '-')
             table_data.append({
                 'Timestamp': i['timestamp'][:19],
                 'Status': i['status'].upper(),
-                'Similarity': f"{i.get('similarity_score', 0):.2%}",
+                'Similarity': f"{safety_result.get('similarity_score', 0):.2%}",
                 'Processing (s)': f"{i.get('processing_time', 0):.2f}",
-                'Category': i.get('matched_category', '-'),
+                'Category': matched_category,
                 'Query Preview': i['user_message'][:50] + "..."
             })
         st.dataframe(table_data, use_container_width=True)
