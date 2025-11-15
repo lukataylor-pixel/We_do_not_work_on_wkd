@@ -28,9 +28,13 @@ The Guardian Agent project is structured around three main components, each serv
 *   **Hybrid NLP Approach**: Utilizes semantic similarity (cosine similarity with `sentence-transformers`) for development and robust keyword matching for deployment to ensure compatibility and performance.
 *   **Precomputed Embeddings**: To optimize deployment and startup times, embeddings for the sensitive knowledge base are precomputed.
 *   **UI/UX**:
-    *   **Customer Chat Interface** (`app.py` - Port 5000): Streamlit-based dashboard with real-time safety analysis visualization, statistics, demo scenario buttons, and interaction logs.
-    *   **Admin Dashboard** (`admin_dashboard.py` - Port 3000): Streamlit-based backend for trace review, analytics, and settings. It provides a `Trace Explorer`, `Analytics Panel`, and real-time monitoring.
-    *   **Demo Finance Website** (`demo_website/` + `api.py` - Port 8000): Features a professional fintech UI with a homepage, support page (embedding the chat widget), and an interactive chat component. Includes pre-configured "Jailbreak Test Buttons" for demonstration purposes.
+    *   **Unified Mission Control Dashboard** (`unified_dashboard.py` - Port 5000): Comprehensive Streamlit-based interface with 4 tabs providing complete observability:
+        *   **Live Chat & Monitor**: Interactive chat with real-time safety visualization, demo scenario buttons, recent activity feed, and live statistics
+        *   **Trace Explorer**: Complete interaction history with filtering, search, and detailed inspection
+        *   **Analytics Dashboard**: Charts, statistics, performance metrics, and trend analysis
+        *   **System Status**: Health monitoring, configuration overview, and integration status
+    *   **Admin Dashboard** (`admin_dashboard.py` - Port 3000): Alternative Streamlit-based backend for trace review and analytics.
+    *   **Demo Finance Website** (`demo_website/` + `api.py` - Port 8000): Professional fintech UI with homepage, support page (embedding the chat widget), and interactive chat component. Includes pre-configured "Jailbreak Test Buttons" for demonstration purposes.
 
 ### Technical Implementation & Specifications
 

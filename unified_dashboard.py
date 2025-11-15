@@ -25,15 +25,15 @@ st.sidebar.markdown("### Mission Control Dashboard")
 st.sidebar.markdown("---")
 
 stats = telemetry.get_statistics()
-st.sidebar.metric("Total Interactions", stats['total'])
-st.sidebar.metric("🛡️ Blocked (Unsafe)", stats['blocked'], delta=f"{stats['block_rate']:.1f}%")
-st.sidebar.metric("✅ Safe Responses", stats['safe'])
+st.sidebar.metric("Total Interactions", stats['total_interactions'])
+st.sidebar.metric("🛡️ Blocked (Unsafe)", stats['blocked_count'], delta=f"{stats['block_rate']:.1f}%")
+st.sidebar.metric("✅ Safe Responses", stats['safe_count'])
 st.sidebar.metric("Avg Processing Time", f"{stats['avg_processing_time']:.2f}s")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("**System Status**")
 st.sidebar.success("✅ Agent Online")
-st.sidebar.info(f"📊 Database: {stats['total']} records")
+st.sidebar.info(f"📊 Database: {stats['total_interactions']} records")
 
 tab1, tab2, tab3, tab4 = st.tabs(["💬 Live Chat & Monitor", "🔍 Trace Explorer", "📊 Analytics Dashboard", "⚙️ System Status"])
 
@@ -157,7 +157,7 @@ with tab1:
         with metric_cols[0]:
             st.metric("Block Rate", f"{stats['block_rate']:.1f}%")
         with metric_cols[1]:
-            st.metric("Avg Similarity", f"{stats['avg_similarity']:.2%}")
+            st.metric("Avg Similarity", f"{stats['avg_similarity_score']:.2%}")
 
 with tab2:
     st.title("🔍 Trace Explorer")
@@ -235,11 +235,11 @@ with tab3:
     
     metric_row1 = st.columns(4)
     with metric_row1[0]:
-        st.metric("Total Interactions", stats['total'])
+        st.metric("Total Interactions", stats['total_interactions'])
     with metric_row1[1]:
-        st.metric("Blocked Attempts", stats['blocked'])
+        st.metric("Blocked Attempts", stats['blocked_count'])
     with metric_row1[2]:
-        st.metric("Safe Responses", stats['safe'])
+        st.metric("Safe Responses", stats['safe_count'])
     with metric_row1[3]:
         st.metric("Block Rate", f"{stats['block_rate']:.1f}%")
     
@@ -250,8 +250,8 @@ with tab3:
     with col_chart1:
         st.markdown("### 🎯 Status Distribution")
         status_data = {
-            'Safe': stats['safe'],
-            'Blocked': stats['blocked']
+            'Safe': stats['safe_count'],
+            'Blocked': stats['blocked_count']
         }
         st.bar_chart(status_data)
     
@@ -276,7 +276,7 @@ with tab3:
     with perf_cols[0]:
         st.metric("Avg Processing Time", f"{stats['avg_processing_time']:.2f}s")
     with perf_cols[1]:
-        st.metric("Avg Similarity Score", f"{stats['avg_similarity']:.2%}")
+        st.metric("Avg Similarity Score", f"{stats['avg_similarity_score']:.2%}")
     with perf_cols[2]:
         if all_interactions:
             max_sim = max(i.get('similarity_score', 0) for i in all_interactions)
@@ -313,7 +313,7 @@ with tab4:
     with health_cols[1]:
         st.success("✅ Safety Classifier: Active")
     with health_cols[2]:
-        st.success(f"✅ Database: {stats['total']} records")
+        st.success(f"✅ Database: {stats['total_interactions']} records")
     
     st.markdown("---")
     

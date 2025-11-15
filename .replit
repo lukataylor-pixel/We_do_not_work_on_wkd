@@ -17,27 +17,15 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "streamlit_app"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
 args = "admin_dashboard"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
 args = "demo_website_api"
 
-[[workflows.workflow]]
-name = "streamlit_app"
-author = "agent"
-
 [[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "streamlit run app.py --server.port=5000 --server.address=0.0.0.0"
-waitForPort = 5000
-
-[workflows.workflow.metadata]
-outputType = "webview"
+task = "workflow.run"
+args = "unified_dashboard"
 
 [[workflows.workflow]]
 name = "admin_dashboard"
@@ -63,6 +51,18 @@ waitForPort = 8000
 [workflows.workflow.metadata]
 outputType = "console"
 
+[[workflows.workflow]]
+name = "unified_dashboard"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "streamlit run unified_dashboard.py --server.port=5000 --server.address=0.0.0.0"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
 [[ports]]
 localPort = 3000
 externalPort = 3000
@@ -72,8 +72,8 @@ localPort = 5000
 externalPort = 80
 
 [[ports]]
-localPort = 8000
-externalPort = 8000
+localPort = 39995
+externalPort = 3001
 
 [deployment]
 deploymentTarget = "autoscale"
