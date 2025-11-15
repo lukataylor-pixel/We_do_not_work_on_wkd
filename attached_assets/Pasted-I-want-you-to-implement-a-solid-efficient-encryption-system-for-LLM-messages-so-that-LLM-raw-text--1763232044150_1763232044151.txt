@@ -1,0 +1,73 @@
+I want you to implement a solid, efficient encryption system for LLM messages so that:
+LLM raw text is never stored or passed around in plaintext outside of tightly controlled points.
+The safety classifier can still fully inspect the decrypted text to classify jailbreaks and PII leakage.
+Logs / telemetry can store ciphertext instead of plaintext where appropriate.
+High-Level Security Design
+Implement the following design:
+Use symmetric authenticated encryption (AEAD):
+Prefer AES-256-GCM (via the cryptography library) assuming AES-NI hardware.
+There should be a single encryption module, e.g. encryption.py, with a clear API:
+encrypt_text(plaintext: str, associated_data: dict | None = None) -> dict
+decrypt_text(payload: dict) -> str
+encrypt_text should:
+Take a UTF-8 string.
+Use a 256-bit symmetric key K loaded from an environment variable, e.g. SECUREBANK_ENC_KEY (base64-encoded).
+Generate a 96-bit random nonce per message.
+Use AES-GCM with optional associated data (e.g. request_id, user_id, or classification context).
+Return a JSON-serializable dict:
+{
+  "ciphertext": "<hex or base64>",
+  "nonce": "<hex or base64>",
+  "key_id": "main-2025-01",     // to support future rotation
+  "aad": { ... }                // if needed
+}
+decrypt_text should:
+Take that payload, look up the correct key by key_id (for now you can just use one key ID).
+Verify integrity and return the plaintext string.
+Raise a clear exception if decryption fails or the tag is invalid.
+Key Management
+Add a small key management helper inside encryption.py:
+Load the current key from SECUREBANK_ENC_KEY (base64-encoded 32 bytes).
+Validate length and fail fast if misconfigured.
+Provide a placeholder structure to support multiple keys (e.g. a dict mapping key_id to key), so we can add rotation later.
+For now, it’s okay to use a single key ID like "main-2025-01", but make the code ready for key rotation.
+Integration Points
+Wire this encryption into the existing stack as follows:
+LLM Output Path (in api.py or wherever the LLM response is produced):
+Right after the LLM generates a response string llm_output, immediately call encrypt_text(llm_output, associated_data={...}).
+Store or pass around only the encrypted payload object inside the backend pipeline.
+Only decrypt when strictly necessary.
+Safety Classifier (in safety_classifier.py):
+Update the classifier entry point so it accepts the encrypted payload instead of raw text.
+Inside the classifier:
+Call decrypt_text(payload) to get the plaintext.
+Run all jailbreak / adversarial / PII checks on the decrypted plaintext.
+Return the classification result, but do not re-store the plaintext anywhere (unless specifically required).
+UI / API Response Logic (in api.py / unified_dashboard.py):
+The user should only ever receive plaintext that has been:
+Decrypted; and
+Approved as safe by the classifier.
+For unsafe outputs, send a safe fallback message instead (e.g. “This response was blocked for security reasons.”).
+Telemetry / Logging (in shared_telemetry.py and any log calls):
+Wherever we currently log raw model responses, change it to log only:
+The encrypted payload (ciphertext + nonce + key_id), or
+A redacted / truncated snippet, or
+A hash of the plaintext, if needed for correlation.
+Avoid storing full plaintext in SQLite or any logs unless explicitly required for debugging, and if so, add a clear configuration flag like ALLOW_PLAINTEXT_LOGGING=False and default it to False.
+Code & Structure Requirements
+Create a new encryption.py file with:
+Key loading and validation.
+encrypt_text and decrypt_text helper functions.
+Clear docstrings and type hints.
+Update api.py, safety_classifier.py, and shared_telemetry.py to use this module consistently.
+Make sure exception paths are clean:
+If decryption fails (wrong key, tampered data, etc.), return a safe error response and log a security event.
+Testing
+Add basic tests (either pytest style or simple test functions) to verify:
+decrypt_text(encrypt_text("hello world")) == "hello world".
+Changing one byte of ciphertext or nonce causes decryption to fail.
+The classifier can still run normally when given encrypted payloads.
+Please:
+Show me the full encryption.py file.
+Show the key changes in api.py, safety_classifier.py, and shared_telemetry.py.
+Briefly explain where in the request → LLM → classifier → response pipeline encryption and decryption now occur.

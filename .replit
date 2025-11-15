@@ -5,7 +5,7 @@ integrations = ["python_openai_ai_integrations:1.0.0"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["glibcLocales"]
+packages = ["cargo", "glibcLocales", "libiconv", "libxcrypt", "openssl", "pkg-config", "rustc"]
 
 [workflows]
 runButton = "Project"
@@ -74,10 +74,6 @@ externalPort = 80
 [[ports]]
 localPort = 8000
 externalPort = 8000
-
-[[ports]]
-localPort = 35525
-externalPort = 3001
 
 [deployment]
 deploymentTarget = "autoscale"

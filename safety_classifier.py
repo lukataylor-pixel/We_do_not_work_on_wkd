@@ -2,10 +2,11 @@
 
 import pandas as pd
 import numpy as np
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 from sklearn.metrics.pairwise import cosine_similarity
 import os
 import pickle
+from encryption import decrypt_text, is_encrypted_payload, DecryptionError
 
 
 class SafetyClassifier:
@@ -235,12 +236,17 @@ class SafetyClassifier:
             'method': 'keyword_fallback'
         }
 
-    def check_safety(self, agent_response: str) -> Dict[str, Any]:
+    def check_safety(self, agent_response: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
         """
         Check if an agent response contains sensitive information.
         
+        Supports both plaintext strings (legacy) and encrypted payloads (secure).
+        If an encrypted payload is provided, it will be decrypted before classification.
+        
         Args:
-            agent_response: The response text from the agent to evaluate
+            agent_response: The response from the agent - either:
+                - str: Plaintext response (legacy, backward compatibility)
+                - Dict[str, Any]: Encrypted payload with ciphertext, nonce, key_id
             
         Returns:
             Dictionary containing:
@@ -249,8 +255,28 @@ class SafetyClassifier:
                 - matched_topic (str): Category of matched sensitive info (if blocked)
                 - matched_text (str): The sensitive info that was matched (if blocked)
                 - method (str): Method used for classification
+                - decryption_error (bool): True if decryption failed (only for encrypted payloads)
         """
-        if not agent_response or len(agent_response.strip()) == 0:
+        # Handle encrypted payloads
+        if is_encrypted_payload(agent_response):
+            try:
+                plaintext_response = decrypt_text(agent_response)
+            except DecryptionError as e:
+                # Decryption failed - treat as unsafe and log security event
+                print(f"⚠️ SECURITY EVENT: Decryption failed in safety check: {e}")
+                return {
+                    'safe': False,
+                    'similarity_score': 1.0,
+                    'matched_topic': 'decryption_error',
+                    'matched_text': None,
+                    'method': 'decryption_error',
+                    'decryption_error': True
+                }
+        else:
+            # Plaintext response (backward compatibility)
+            plaintext_response = agent_response
+        
+        if not plaintext_response or len(plaintext_response.strip()) == 0:
             return {
                 'safe': True,
                 'similarity_score': 0.0,
@@ -260,18 +286,18 @@ class SafetyClassifier:
             }
 
         if self.sensitive_embeddings is None:
-            return self._keyword_fallback_check(agent_response)
+            return self._keyword_fallback_check(plaintext_response)
 
         try:
             # Generate embedding for the response using OpenAI embeddings API
             if self.embedding_model == "openai":
-                response_embedding = self._encode_with_openai(agent_response)
+                response_embedding = self._encode_with_openai(plaintext_response)
                 if response_embedding is None:
                     # OpenAI encoding failed, fall back to keyword matching
-                    return self._keyword_fallback_check(agent_response)
+                    return self._keyword_fallback_check(plaintext_response)
             else:
                 # No embedding method available, fall back to keyword matching
-                return self._keyword_fallback_check(agent_response)
+                return self._keyword_fallback_check(plaintext_response)
 
             # Reshape to 2D array for cosine_similarity
             response_embedding = response_embedding.reshape(1, -1)

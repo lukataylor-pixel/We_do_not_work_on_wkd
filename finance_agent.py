@@ -10,6 +10,7 @@ from langgraph.prebuilt import create_react_agent
 from langfuse.langchain import CallbackHandler
 from safety_classifier import SafetyClassifier
 from shared_telemetry import get_telemetry
+from encryption import encrypt_text, decrypt_text, is_encrypted_payload, get_payload_preview, EncryptionError
 import time
 
 
@@ -197,6 +198,16 @@ Be friendly and professional, but security comes first."""
             
             final_message = agent_response['messages'][-1].content
             
+            # Encrypt LLM output immediately after generation
+            encrypted_response = encrypt_text(
+                final_message,
+                associated_data={
+                    'request_id': trace_id if trace_id else 'none',
+                    'timestamp': time.strftime("%Y-%m-%d %H:%M:%S"),
+                    'stage': 'llm_output'
+                }
+            )
+            
             # Extract tool calls if any
             tool_calls = []
             for msg in agent_response['messages']:
@@ -217,22 +228,23 @@ Be friendly and professional, but security comes first."""
                     'message_count': len(agent_response['messages']),
                     'tool_calls': tool_calls,
                     'has_tool_calls': len(tool_calls) > 0,
-                    'response_preview': final_message[:200] if final_message else ''
+                    'response_preview': get_payload_preview(encrypted_response, max_length=100)
                 }
             })
             
             # Stage 3: Output Safety Check (PII Leak Prevention)
+            # Pass encrypted payload to safety classifier (it will decrypt internally)
             output_check_start = time.time()
             
             # Log safety check to LangFuse
             if self.enable_langfuse and self.langfuse_handler:
                 safety_span = self.langfuse_handler.trace(
                     name="safety_check",
-                    input=final_message,
+                    input=get_payload_preview(encrypted_response),
                     metadata={"threshold": self.safety_classifier.threshold}
                 )
             
-            safety_result = self.safety_classifier.check_safety(final_message)
+            safety_result = self.safety_classifier.check_safety(encrypted_response)
             
             decision_flow.append({
                 'stage': 'output_safety_check',
@@ -246,7 +258,7 @@ Be friendly and professional, but security comes first."""
                     'similarity_score': safety_result.get('similarity_score', 0.0),
                     'threshold': self.safety_classifier.threshold,
                     'matched_topic': safety_result.get('matched_topic', ''),
-                    'agent_attempted_response': final_message[:300] if not safety_result['safe'] else None
+                    'agent_attempted_response_encrypted': get_payload_preview(encrypted_response, 150) if not safety_result['safe'] else None
                 }
             })
             
@@ -283,13 +295,14 @@ Be friendly and professional, but security comes first."""
                         metadata={
                             "matched_patterns": adversarial_check['matched_patterns'],
                             "pattern_count": adversarial_check['pattern_count'],
-                            "original_response_preview": final_message[:100]
+                            "original_response_preview": get_payload_preview(encrypted_response, 100)
                         }
                     )
             elif not safety_result['safe']:
                 # PII leak detected in output
+                # Use safe alternative instead of decrypting the unsafe response
                 response_text = self.safety_classifier.get_safe_alternative(
-                    final_message, 
+                    "blocked",  # Don't need the plaintext here
                     safety_result
                 )
                 status = "blocked"
@@ -302,12 +315,17 @@ Be friendly and professional, but security comes first."""
                         metadata={
                             "matched_topic": safety_result.get('matched_topic'),
                             "similarity_score": safety_result.get('similarity_score'),
-                            "original_response_preview": final_message[:100]
+                            "original_response_preview": get_payload_preview(encrypted_response, 100)
                         }
                     )
             else:
-                # Both checks passed - safe response
-                response_text = final_message
+                # Both checks passed - decrypt and send safe response
+                try:
+                    response_text = decrypt_text(encrypted_response)
+                except Exception as e:
+                    # Decryption failed - treat as error
+                    response_text = "I apologize, but I encountered an error processing your request. Please try again."
+                    print(f"⚠️ SECURITY EVENT: Decryption failed in final decision: {e}")
                 status = "safe"
                 block_reason = None
             
@@ -328,8 +346,8 @@ Be friendly and professional, but security comes first."""
             
             interaction = {
                 'user_message': user_message,
-                'agent_original_response': final_message,
-                'final_response': response_text,
+                'agent_original_response_encrypted': encrypted_response,  # Store ciphertext instead of plaintext
+                'final_response': response_text,  # Only decrypted if safe, or safe alternative
                 'status': status,
                 'safety_result': safety_result,
                 'adversarial_check': adversarial_check,
