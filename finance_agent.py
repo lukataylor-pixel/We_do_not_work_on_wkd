@@ -205,10 +205,24 @@ Be friendly and professional, but security comes first."""
             
             processing_time = time.time() - start_time
             
-            if safety_result['safe']:
-                response_text = final_message
-                status = "safe"
-            else:
+            # Determine status based on BOTH adversarial detection and PII safety
+            if adversarial_check['is_adversarial']:
+                # Adversarial input detected - mark as blocked regardless of output
+                response_text = "I cannot process this request. For security reasons, I can only help with legitimate account inquiries after proper verification."
+                status = "blocked"
+                
+                # Log blocked adversarial request
+                if self.enable_langfuse and self.langfuse_handler:
+                    self.langfuse_handler.event(
+                        name="adversarial_request_blocked",
+                        metadata={
+                            "matched_patterns": adversarial_check['matched_patterns'],
+                            "pattern_count": adversarial_check['pattern_count'],
+                            "original_response_preview": final_message[:100]
+                        }
+                    )
+            elif not safety_result['safe']:
+                # PII leak detected in output
                 response_text = self.safety_classifier.get_safe_alternative(
                     final_message, 
                     safety_result
@@ -218,13 +232,17 @@ Be friendly and professional, but security comes first."""
                 # Log blocked response to LangFuse
                 if self.enable_langfuse and self.langfuse_handler:
                     self.langfuse_handler.event(
-                        name="response_blocked",
+                        name="pii_leak_blocked",
                         metadata={
                             "matched_topic": safety_result.get('matched_topic'),
                             "similarity_score": safety_result.get('similarity_score'),
                             "original_response_preview": final_message[:100]
                         }
                     )
+            else:
+                # Both checks passed - safe response
+                response_text = final_message
+                status = "safe"
             
             interaction = {
                 'user_message': user_message,
