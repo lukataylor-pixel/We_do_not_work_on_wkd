@@ -60,7 +60,14 @@ streamlit run unified_dashboard.py --server.port=5000 --server.address=0.0.0.0
 
 ## Dashboard Features
 - **Live Chat & Monitor**: Interactive testing with real-time adversarial warnings
-- **Trace Explorer**: Full interaction history with filtering and search
+- **Trace Explorer with Agent Decision Flow Visualizer**: Glass-box observability tool showing the agent's complete decision-making process
+  - **Visual Timeline**: 4-stage flow (Input Safety → Agent Reasoning → Output Safety → Final Decision) with color-coded status
+  - **Interactive Explainability Panel**: Click any stage to see detailed reasoning
+    - Input Safety: Shows which adversarial patterns matched (out of 54 total)
+    - Agent Reasoning: Displays tool calls and response preview
+    - Output Safety: Shows PII similarity evidence, matched customer data, agent's attempted response before blocking
+    - Final Decision: Reveals block reason (adversarial_input/pii_leak) and final response
+  - **Full Auditability**: Every decision is traceable with timestamps, durations, and human-interpretable explanations
 - **Analytics Dashboard**: Block rates, attack patterns, security metrics
 - **System Status**: Health monitoring and event counters
 
