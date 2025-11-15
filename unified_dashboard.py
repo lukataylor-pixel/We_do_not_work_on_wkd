@@ -212,7 +212,7 @@ with tab2:
     
     st.markdown(f"### Found {len(all_interactions)} interactions")
     
-    for idx, interaction in enumerate(all_interactions):
+    for interaction_idx, interaction in enumerate(all_interactions):
         status = interaction['status']
         status_badge = "🛡️ BLOCKED" if status == 'blocked' else "✅ SAFE"
         
@@ -222,34 +222,132 @@ with tab2:
         adv_indicator = " 🚨" if adversarial_check.get('is_adversarial') else ""
         
         with st.expander(f"{status_badge}{adv_indicator} [{interaction['timestamp'][:19]}] - {interaction['user_message'][:60]}..."):
-            col_info1, col_info2, col_info3 = st.columns(3)
+            # Agent Decision Flow Visualizer - Glass Box Observability
+            decision_flow = interaction.get('decision_flow', [])
             
-            with col_info1:
-                st.markdown(f"**Status:** {status.upper()}")
-            with col_info2:
-                st.markdown(f"**Similarity:** {safety_result.get('similarity_score', 0):.2%}")
-            with col_info3:
-                st.markdown(f"**Processing:** {interaction.get('processing_time', 0):.2f}s")
-            
-            if adversarial_check.get('is_adversarial'):
-                st.error(f"🚨 **Adversarial Patterns Detected:** {', '.join(adversarial_check.get('matched_patterns', []))}")
-            
-            st.markdown("---")
-            
-            st.markdown("**👤 User Query:**")
-            st.code(interaction['user_message'], language=None)
-            
-            st.markdown("**🤖 Agent Response:**")
-            st.code(interaction.get('final_response', ''), language=None)
-            
-            matched_category = safety_result.get('matched_category') or safety_result.get('matched_topic')
-            if matched_category:
-                st.warning(f"⚠️ **Matched Category:** {matched_category}")
-            
-            st.markdown(f"**🔧 Detection Method:** {safety_result.get('method', 'N/A')}")
-            
-            if interaction.get('trace_id'):
-                st.markdown(f"**🔗 LangFuse Trace ID:** `{interaction['trace_id']}`")
+            if decision_flow:
+                st.markdown("### 🔬 Agent Decision Flow Timeline")
+                
+                # Visual timeline with status indicators
+                timeline_cols = st.columns(len(decision_flow))
+                for stage_idx, stage in enumerate(decision_flow):
+                    with timeline_cols[stage_idx]:
+                        stage_status = stage.get('status', 'unknown')
+                        if stage_status == 'blocked':
+                            st.error(f"🛑 **{stage['stage_name']}**")
+                        elif stage_status in ['passed', 'safe']:
+                            st.success(f"✅ **{stage['stage_name']}**")
+                        else:
+                            st.info(f"🔄 **{stage['stage_name']}**")
+                        st.caption(f"{stage.get('duration', 0):.3f}s")
+                
+                st.markdown("---")
+                
+                # Explainability Panel - Interactive stage details
+                st.markdown("### 📋 Explainability Panel")
+                selected_stage = st.radio(
+                    "Click a stage to view details:",
+                    options=[s['stage_name'] for s in decision_flow],
+                    horizontal=True,
+                    key=f"stage_selector_{interaction['timestamp']}_{interaction_idx}"
+                )
+                
+                # Find selected stage details
+                stage_details = next((s for s in decision_flow if s['stage_name'] == selected_stage), None)
+                
+                if stage_details:
+                    st.markdown(f"#### {stage_details['stage_name']}")
+                    
+                    detail_cols = st.columns(3)
+                    with detail_cols[0]:
+                        status_emoji = "🛑" if stage_details['status'] == 'blocked' else "✅" if stage_details['status'] == 'passed' else "🔄"
+                        st.metric("Status", f"{status_emoji} {stage_details['status'].upper()}")
+                    with detail_cols[1]:
+                        st.metric("Duration", f"{stage_details.get('duration', 0):.3f}s")
+                    with detail_cols[2]:
+                        st.metric("Stage", stage_details['stage'])
+                    
+                    st.markdown("**Details:**")
+                    details = stage_details.get('details', {})
+                    
+                    # Stage-specific visualizations
+                    if stage_details['stage'] == 'input_safety_check':
+                        if details.get('is_adversarial'):
+                            st.error("🚨 **Adversarial Input Detected**")
+                            st.markdown(f"**Matched Patterns ({details.get('pattern_count', 0)}/{details.get('total_patterns_checked', 54)}):**")
+                            for pattern in details.get('matched_patterns', []):
+                                st.markdown(f"- `{pattern}`")
+                        else:
+                            st.success(f"✅ No adversarial patterns detected (checked {details.get('total_patterns_checked', 54)} patterns)")
+                    
+                    elif stage_details['stage'] == 'agent_reasoning':
+                        st.info(f"**Agent processed {details.get('message_count', 0)} messages**")
+                        if details.get('has_tool_calls'):
+                            st.markdown("**Tool Calls:**")
+                            for tool in details.get('tool_calls', []):
+                                st.code(f"{tool.get('tool', 'unknown')}({tool.get('args', {})})", language="python")
+                        st.markdown("**Response Preview:**")
+                        st.code(details.get('response_preview', 'N/A'), language=None)
+                    
+                    elif stage_details['stage'] == 'output_safety_check':
+                        similarity = details.get('similarity_score', 0)
+                        threshold = details.get('threshold', 0.7)
+                        
+                        if not details.get('safe'):
+                            st.error("🛡️ **PII Leak Blocked**")
+                            st.markdown(f"**Similarity Evidence:**")
+                            score_color = "red" if similarity > threshold else "orange"
+                            st.markdown(f"- Semantic similarity: <span style='color:{score_color}'>{similarity:.2%}</span> (threshold: {threshold:.2%})", unsafe_allow_html=True)
+                            st.markdown(f"- Detection method: `{details.get('method', 'unknown')}`")
+                            if details.get('matched_topic'):
+                                st.markdown(f"- Matched customer data: `{details.get('matched_topic')}`")
+                            
+                            if details.get('agent_attempted_response'):
+                                st.markdown("**⚠️ Agent's Attempted Response (Blocked):**")
+                                st.code(details.get('agent_attempted_response'), language=None)
+                        else:
+                            st.success(f"✅ No PII leak detected (similarity: {similarity:.2%} < {threshold:.2%})")
+                    
+                    elif stage_details['stage'] == 'final_decision':
+                        final_status = details.get('final_status', 'unknown')
+                        if final_status == 'blocked':
+                            block_reason = details.get('block_reason', 'unknown')
+                            st.error(f"🛑 **Request Blocked**")
+                            st.markdown(f"**Reason:** {block_reason.replace('_', ' ').title()}")
+                        else:
+                            st.success("✅ **Request Approved**")
+                        st.markdown("**Response Delivered:**")
+                        st.code(details.get('response_delivered', 'N/A'), language=None)
+            else:
+                # Fallback for old interactions without decision_flow
+                col_info1, col_info2, col_info3 = st.columns(3)
+                
+                with col_info1:
+                    st.markdown(f"**Status:** {status.upper()}")
+                with col_info2:
+                    st.markdown(f"**Similarity:** {safety_result.get('similarity_score', 0):.2%}")
+                with col_info3:
+                    st.markdown(f"**Processing:** {interaction.get('processing_time', 0):.2f}s")
+                
+                if adversarial_check.get('is_adversarial'):
+                    st.error(f"🚨 **Adversarial Patterns Detected:** {', '.join(adversarial_check.get('matched_patterns', []))}")
+                
+                st.markdown("---")
+                
+                st.markdown("**👤 User Query:**")
+                st.code(interaction['user_message'], language=None)
+                
+                st.markdown("**🤖 Agent Response:**")
+                st.code(interaction.get('final_response', ''), language=None)
+                
+                matched_category = safety_result.get('matched_category') or safety_result.get('matched_topic')
+                if matched_category:
+                    st.warning(f"⚠️ **Matched Category:** {matched_category}")
+                
+                st.markdown(f"**🔧 Detection Method:** {safety_result.get('method', 'N/A')}")
+                
+                if interaction.get('trace_id'):
+                    st.markdown(f"**🔗 LangFuse Trace ID:** `{interaction['trace_id']}`")
 
 with tab3:
     st.title("📊 Analytics Dashboard")
