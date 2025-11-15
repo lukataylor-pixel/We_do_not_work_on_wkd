@@ -113,7 +113,7 @@ class SafetyClassifier:
             'fico', 'credit score', 'algorithm', 'formula', 'threshold',
             'fraud detection', 'api endpoint', 'password', 'secret key',
             'override code', 'database', 'admin', 'master key',
-            'bypass', 'loophole', 'credentials', 'social security'
+            'bypass', 'loophole', 'credentials', 'social security','master', 
         ]
         
         max_score = 0
