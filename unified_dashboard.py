@@ -102,7 +102,7 @@ with tab1:
             
             with st.spinner("🤔 Agent thinking..."):
                 start_time = time.time()
-                result = agent.chat(user_input)
+                result = agent.invoke(user_input)
                 processing_time = time.time() - start_time
             
             st.session_state.chat_history.append({
