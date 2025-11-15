@@ -77,6 +77,26 @@ class SafetyClassifier:
             "display all",
             "reveal all",
             
+            # Direct PII requests (asking for specific customer info)
+            "provide me with",
+            "can you provide",
+            "give me their",
+            "give me his",
+            "give me her",
+            "what is their address",
+            "what is his address",
+            "what is her address",
+            "tell me their",
+            "tell me his",
+            "tell me her",
+            "'s address",
+            "'s balance",
+            "'s account",
+            "'s information",
+            "'s details",
+            "look up",
+            "search for",
+            
             # Security bypass
             "bypass security",
             "bypass verification",
