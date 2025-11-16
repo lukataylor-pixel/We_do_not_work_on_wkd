@@ -7,6 +7,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
+from langfuse import Langfuse
 from langfuse.langchain import CallbackHandler
 from safety_classifier import SafetyClassifier
 from shared_telemetry import get_telemetry
@@ -36,18 +37,24 @@ class FinanceAgent:
 
         # Initialize LangFuse callback handler if enabled
         self.langfuse_handler = None
+        self.langfuse_client = None
         if enable_langfuse:
             try:
                 langfuse_public_key = os.environ.get("LANGFUSE_PUBLIC_KEY")
                 langfuse_secret_key = os.environ.get("LANGFUSE_SECRET_KEY")
-                langfuse_host = os.environ.get("LANGFUSE_HOST",
-                                               "https://cloud.langfuse.com")
+                langfuse_host = os.environ.get("LANGFUSE_BASE_URL") or os.environ.get("LANGFUSE_HOST", "https://cloud.langfuse.com")
 
                 if langfuse_public_key and langfuse_secret_key:
-                    self.langfuse_handler = CallbackHandler(
+                    # Initialize the Langfuse client first
+                    self.langfuse_client = Langfuse(
                         public_key=langfuse_public_key,
                         secret_key=langfuse_secret_key,
-                        host=langfuse_host)
+                        host=langfuse_host
+                    )
+                    
+                    # Then create the CallbackHandler (it will use the global client)
+                    self.langfuse_handler = CallbackHandler(
+                        public_key=langfuse_public_key)
                     print("✅ LangFuse tracing enabled")
                 else:
                     print("⚠️ LangFuse keys not found, tracing disabled")
