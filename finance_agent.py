@@ -23,15 +23,18 @@ class FinanceAgent:
 
     def __init__(self,
                  safety_threshold: float = 0.7,
-                 enable_langfuse: bool = True):
+                 enable_langfuse: bool = True,
+                 disable_safety_checks: bool = False):
         """
         Initialize the SecureBank agent with PII leak prevention.
-        
+
         Args:
             safety_threshold: Similarity threshold for PII leak detection
             enable_langfuse: Whether to enable LangFuse tracing (default: True)
+            disable_safety_checks: If True, disables all safety checks for baseline evaluation (default: False)
         """
-        self.safety_classifier = SafetyClassifier(threshold=safety_threshold)
+        self.disable_safety_checks = disable_safety_checks
+        self.safety_classifier = SafetyClassifier(threshold=safety_threshold) if not disable_safety_checks else None
         self.enable_langfuse = enable_langfuse
         self.customer_kb = pd.read_csv('customer_knowledge_base.csv')
 
@@ -151,29 +154,50 @@ Be friendly and professional, but security comes first."""
         start_time = time.time()
         decision_flow = []  # Track agent's decision-making stages
 
-        # Stage 1: Input Safety Check
+        # Stage 1: Input Safety Check (skip if safety checks disabled)
         input_check_start = time.time()
-        adversarial_check = self.safety_classifier.check_adversarial_input(
-            user_message)
-        decision_flow.append({
-            'stage':
-            'input_safety_check',
-            'stage_name':
-            'Input Safety Check',
-            'timestamp':
-            time.time(),
-            'duration':
-            time.time() - input_check_start,
-            'status':
-            'blocked' if adversarial_check['is_adversarial'] else 'passed',
-            'details': {
-                'is_adversarial': adversarial_check['is_adversarial'],
-                'matched_patterns':
-                adversarial_check.get('matched_patterns', []),
-                'pattern_count': adversarial_check.get('pattern_count', 0),
-                'total_patterns_checked': 54
+        if not self.disable_safety_checks:
+            adversarial_check = self.safety_classifier.check_adversarial_input(
+                user_message)
+            decision_flow.append({
+                'stage':
+                'input_safety_check',
+                'stage_name':
+                'Input Safety Check',
+                'timestamp':
+                time.time(),
+                'duration':
+                time.time() - input_check_start,
+                'status':
+                'blocked' if adversarial_check['is_adversarial'] else 'passed',
+                'details': {
+                    'is_adversarial': adversarial_check['is_adversarial'],
+                    'matched_patterns':
+                    adversarial_check.get('matched_patterns', []),
+                    'pattern_count': adversarial_check.get('pattern_count', 0),
+                    'total_patterns_checked': 127
+                }
+            })
+        else:
+            # Safety checks disabled - skip adversarial detection
+            adversarial_check = {
+                'is_adversarial': False,
+                'matched_patterns': [],
+                'pattern_count': 0,
+                'matched_customer_names': [],
+                'obfuscation_detected': False
             }
-        })
+            decision_flow.append({
+                'stage': 'input_safety_check',
+                'stage_name': 'Input Safety Check (DISABLED)',
+                'timestamp': time.time(),
+                'duration': time.time() - input_check_start,
+                'status': 'skipped',
+                'details': {
+                    'safety_disabled': True,
+                    'note': 'All safety checks disabled for baseline evaluation'
+                }
+            })
 
         # Generate trace ID for tracking (LangFuse CallbackHandler manages tracing automatically)
         if not trace_id:
@@ -239,41 +263,61 @@ Be friendly and professional, but security comes first."""
                 }
             })
 
-            # Stage 3: Output Safety Check (PII Leak Prevention)
-            # Pass encrypted payload to safety classifier (it will decrypt internally)
+            # Stage 3: Output Safety Check (PII Leak Prevention) (skip if safety checks disabled)
             output_check_start = time.time()
 
-            # Note: LangFuse CallbackHandler automatically traces all operations
-            safety_result = self.safety_classifier.check_safety(
-                encrypted_response)
+            if not self.disable_safety_checks:
+                # Pass encrypted payload to safety classifier (it will decrypt internally)
+                # Note: LangFuse CallbackHandler automatically traces all operations
+                safety_result = self.safety_classifier.check_safety(
+                    encrypted_response)
 
-            decision_flow.append({
-                'stage':
-                'output_safety_check',
-                'stage_name':
-                'Output Safety Check (PII Leak Prevention)',
-                'timestamp':
-                time.time(),
-                'duration':
-                time.time() - output_check_start,
-                'status':
-                'blocked' if not safety_result['safe'] else 'passed',
-                'details': {
-                    'safe':
-                    safety_result['safe'],
-                    'method':
-                    safety_result.get('method', 'unknown'),
-                    'similarity_score':
-                    safety_result.get('similarity_score', 0.0),
-                    'threshold':
-                    self.safety_classifier.threshold,
-                    'matched_topic':
-                    safety_result.get('matched_topic', ''),
-                    'agent_attempted_response_encrypted':
-                    get_payload_preview(encrypted_response, 150)
-                    if not safety_result['safe'] else None
+                decision_flow.append({
+                    'stage':
+                    'output_safety_check',
+                    'stage_name':
+                    'Output Safety Check (PII Leak Prevention)',
+                    'timestamp':
+                    time.time(),
+                    'duration':
+                    time.time() - output_check_start,
+                    'status':
+                    'blocked' if not safety_result['safe'] else 'passed',
+                    'details': {
+                        'safe':
+                        safety_result['safe'],
+                        'method':
+                        safety_result.get('method', 'unknown'),
+                        'similarity_score':
+                        safety_result.get('similarity_score', 0.0),
+                        'threshold':
+                        self.safety_classifier.threshold,
+                        'matched_topic':
+                        safety_result.get('matched_topic', ''),
+                        'agent_attempted_response_encrypted':
+                        get_payload_preview(encrypted_response, 150)
+                        if not safety_result['safe'] else None
+                    }
+                })
+            else:
+                # Safety checks disabled - skip PII leak detection
+                safety_result = {
+                    'safe': True,
+                    'similarity_score': 0.0,
+                    'matched_topic': None,
+                    'method': 'disabled'
                 }
-            })
+                decision_flow.append({
+                    'stage': 'output_safety_check',
+                    'stage_name': 'Output Safety Check (DISABLED)',
+                    'timestamp': time.time(),
+                    'duration': time.time() - output_check_start,
+                    'status': 'skipped',
+                    'details': {
+                        'safety_disabled': True,
+                        'note': 'All safety checks disabled for baseline evaluation'
+                    }
+                })
 
             processing_time = time.time() - start_time
 
