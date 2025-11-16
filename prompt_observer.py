@@ -426,21 +426,26 @@ class PromptObserver:
         # Calculate similarities between consecutive prompts
         high_similarity_count = 0
         edit_distances = []
+        similarities = []
         
         for prev_prompt in recent_prompts:
             similarity = self._text_similarity(prompt, prev_prompt)
             edit_dist = self._levenshtein_distance(prompt, prev_prompt)
             
             edit_distances.append(edit_dist)
+            similarities.append(similarity)
             
-            # High similarity but not identical
-            if similarity >= self.GRADIENT_SIMILARITY_THRESHOLD and prompt != prev_prompt:
+            # High similarity but not identical (lowered threshold from 0.92 to 0.85 for practical detection)
+            if similarity >= 0.85 and prompt != prev_prompt:
                 high_similarity_count += 1
+                print(f"🔍 Gradient detector: Similarity {similarity:.3f} between current and previous prompt")
         
         # Pattern: Multiple near-duplicate prompts with small edits
         if high_similarity_count >= 2:
             avg_edit_dist = sum(edit_distances) / len(edit_distances)
-            return True, f"Greedy gradient pattern detected: {high_similarity_count} similar prompts with avg edit distance {avg_edit_dist:.0f}"
+            avg_similarity = sum(similarities) / len(similarities) if similarities else 0
+            print(f"✅ Gradient attack detected: {high_similarity_count} similar prompts (avg similarity: {avg_similarity:.3f})")
+            return True, f"Greedy gradient pattern detected: {high_similarity_count} similar prompts with avg similarity {avg_similarity:.2%}"
         
         # Check if prompts are incrementally getting more adversarial
         # (e.g., adding jailbreak keywords gradually)
