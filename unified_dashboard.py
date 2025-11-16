@@ -331,7 +331,8 @@ with tab2:
                 with col_info2:
                     st.markdown(f"**Similarity:** {safety_result.get('similarity_score', 0):.2%}")
                 with col_info3:
-                    st.markdown(f"**Processing:** {interaction.get('processing_time', 0):.2f}s")
+                    processing_time = interaction.get('processing_time') or 0
+                    st.markdown(f"**Processing:** {processing_time:.2f}s")
                 
                 if adversarial_check.get('is_adversarial'):
                     st.error(f"🚨 **Adversarial Patterns Detected:** {', '.join(adversarial_check.get('matched_patterns', []))}")
