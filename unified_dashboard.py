@@ -39,7 +39,15 @@ st.sidebar.markdown("**System Status**")
 st.sidebar.success("✅ Agent Online")
 st.sidebar.info(f"📊 Database: {stats['total_interactions']} records")
 
-tab1, tab2, tab3, tab4 = st.tabs(["💬 Live Chat & Monitor", "🔍 Trace Explorer", "📊 Analytics Dashboard", "⚙️ System Status"])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "💬 Live Chat & Monitor", 
+    "🔍 Trace Explorer", 
+    "📊 Analytics Dashboard",
+    "🔬 LangSmith Traces",
+    "🌐 Decision Graph", 
+    "⏱️ Temporal Leak Analytics",
+    "⚙️ System Status"
+])
 
 with tab1:
     st.title("💬 Live Chat & Safety Monitor")
@@ -432,6 +440,332 @@ with tab3:
         st.info("No interactions recorded yet. Start chatting to see analytics!")
 
 with tab4:
+    st.title("🔬 LangSmith Traces")
+    
+    st.markdown("""
+    ### End-to-End Observability with LangSmith
+    
+    LangSmith provides comprehensive tracing for the Guardian Agent's multi-stage security pipeline.
+    Each interaction is traced with parent-child span hierarchy showing:
+    - Input safety checks (adversarial pattern detection)
+    - Agent reasoning and tool calls  
+    - Output safety checks (PII leak prevention)
+    - Temporal leak analysis
+    - Final decision with full reasoning chain
+    """)
+    
+    st.markdown("---")
+    
+    # Check if agent has LangSmith enabled
+    if hasattr(st.session_state.get('agent'), 'langsmith_enabled') and st.session_state.agent.langsmith_enabled:
+        st.success("✅ LangSmith Tracing: **ENABLED**")
+        st.markdown(f"**Project:** guardian-glass-agent")
+        
+        st.markdown("---")
+        st.markdown("### 📊 Recent Traces")
+        
+        # Display recent interactions with trace IDs
+        all_interactions = telemetry.get_all_interactions()
+        if all_interactions:
+            trace_data = []
+            for i in sorted(all_interactions, key=lambda x: x['timestamp'], reverse=True)[:10]:
+                trace_data.append({
+                    'Timestamp': i['timestamp'][:19],
+                    'Status': '🛡️ BLOCKED' if i['status'] == 'blocked' else '✅ SAFE',
+                    'Query': i['user_message'][:60] + "...",
+                    'Trace ID': i.get('trace_id', 'N/A')[:16] + "..." if i.get('trace_id') else 'N/A'
+                })
+            
+            st.dataframe(trace_data, width='stretch')
+            
+            st.markdown("---")
+            st.info("🔗 **View traces at:** https://smith.langchain.com")
+            st.markdown("Navigate to your project 'guardian-glass-agent' to see detailed trace timelines, token usage, and costs.")
+        else:
+            st.info("No traces recorded yet. Start chatting to generate traces!")
+    else:
+        st.warning("⚠️ LangSmith Tracing: **NOT CONFIGURED**")
+        st.markdown("""
+        ### Setup Instructions
+        
+        To enable LangSmith tracing for full observability:
+        
+        1. Sign up at https://smith.langchain.com
+        2. Create an API key in your account settings
+        3. Set the environment variable:
+           ```bash
+           export LANGSMITH_API_KEY="your-key-here"
+           ```
+        4. Restart the application
+        
+        **Note:** The system works without LangSmith but with limited observability features.
+        """)
+
+with tab5:
+    st.title("🌐 Interactive Decision Graph")
+    
+    st.markdown("""
+    ### Agent Decision Flow Visualization
+    
+    This graph shows the multi-stage decision flow for each interaction:
+    - **User Input** → **Adversarial Check** → **Agent Reasoning** → **PII Filter** → **Final Decision**
+    
+    - **Green nodes**: Safe/passed stages
+    - **Orange nodes**: Warning/suspicious stages  
+    - **Red nodes**: Blocked/rejected stages
+    
+    Click and hover over nodes to see detailed metadata for each stage.
+    """)
+    
+    st.markdown("---")
+    
+    # Select a trace to visualize
+    all_interactions = telemetry.get_all_interactions()
+    
+    if all_interactions:
+        interaction_options = [
+            f"[{i['timestamp'][:19]}] {i['user_message'][:50]}... ({i['status']})"
+            for i in sorted(all_interactions, key=lambda x: x['timestamp'], reverse=True)[:20]
+        ]
+        
+        selected_idx = st.selectbox(
+            "Select an interaction to visualize:",
+            range(len(interaction_options)),
+            format_func=lambda x: interaction_options[x]
+        )
+        
+        selected_interaction = sorted(all_interactions, key=lambda x: x['timestamp'], reverse=True)[selected_idx]
+        
+        st.markdown("---")
+        
+        # Generate decision graph using Plotly
+        decision_flow = selected_interaction.get('decision_flow', [])
+        
+        if decision_flow:
+            try:
+                import plotly.graph_objects as go
+                import networkx as nx
+                
+                # Create directed graph
+                G = nx.DiGraph()
+                
+                # Add nodes for each stage
+                stage_names = []
+                for idx, stage in enumerate(decision_flow):
+                    stage_name = f"{idx+1}. {stage['stage']}"
+                    stage_names.append(stage_name)
+                    G.add_node(stage_name, **stage)
+                
+                # Add edges between consecutive stages
+                for i in range(len(stage_names) - 1):
+                    G.add_edge(stage_names[i], stage_names[i+1])
+                
+                # Create layout
+                pos = nx.spring_layout(G, seed=42)
+                
+                # Extract node positions
+                edge_x = []
+                edge_y = []
+                for edge in G.edges():
+                    x0, y0 = pos[edge[0]]
+                    x1, y1 = pos[edge[1]]
+                    edge_x.extend([x0, x1, None])
+                    edge_y.extend([y0, y1, None])
+                
+                edge_trace = go.Scatter(
+                    x=edge_x, y=edge_y,
+                    line=dict(width=2, color='#888'),
+                    hoverinfo='none',
+                    mode='lines'
+                )
+                
+                node_x = []
+                node_y = []
+                node_colors = []
+                node_text = []
+                
+                for node in G.nodes():
+                    x, y = pos[node]
+                    node_x.append(x)
+                    node_y.append(y)
+                    
+                    # Color by status
+                    node_data = G.nodes[node]
+                    status = node_data.get('status', 'unknown')
+                    if status in ['blocked', 'fail']:
+                        node_colors.append('#ff4444')
+                    elif status in ['warning', 'suspicious']:
+                        node_colors.append('#ffaa00')
+                    else:
+                        node_colors.append('#44ff44')
+                    
+                    # Create hover text
+                    hover_text = f"<b>{node}</b><br>"
+                    hover_text += f"Status: {status}<br>"
+                    hover_text += f"Duration: {node_data.get('duration', 0):.3f}s<br>"
+                    if node_data.get('details'):
+                        hover_text += f"Details: {str(node_data['details'])[:100]}"
+                    node_text.append(hover_text)
+                
+                node_trace = go.Scatter(
+                    x=node_x, y=node_y,
+                    mode='markers+text',
+                    hoverinfo='text',
+                    text=[n.split('. ')[1] if '. ' in n else n for n in G.nodes()],
+                    textposition="top center",
+                    hovertext=node_text,
+                    marker=dict(
+                        showscale=False,
+                        color=node_colors,
+                        size=30,
+                        line_width=2
+                    )
+                )
+                
+                fig = go.Figure(data=[edge_trace, node_trace],
+                              layout=go.Layout(
+                                  showlegend=False,
+                                  hovermode='closest',
+                                  margin=dict(b=0,l=0,r=0,t=0),
+                                  xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                  yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                  height=500
+                              ))
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                st.markdown("---")
+                st.markdown("### 📊 Graph Statistics")
+                
+                total_stages = len(decision_flow)
+                blocked_stages = sum(1 for s in decision_flow if s['status'] == 'blocked')
+                passed_stages = sum(1 for s in decision_flow if s['status'] in ['passed', 'safe'])
+                total_time = sum(s.get('duration', 0) for s in decision_flow)
+                
+                graph_cols = st.columns(4)
+                with graph_cols[0]:
+                    st.metric("Total Stages", total_stages)
+                with graph_cols[1]:
+                    st.metric("Passed", passed_stages)
+                with graph_cols[2]:
+                    st.metric("Blocked", blocked_stages)
+                with graph_cols[3]:
+                    st.metric("Total Time", f"{total_time:.3f}s")
+                    
+            except Exception as e:
+                st.error(f"Error generating decision graph: {str(e)}")
+                st.info("Make sure the selected interaction has a complete decision flow.")
+        else:
+            st.warning("⚠️ No decision flow data available for this interaction")
+            st.info("Decision flow tracking may not be enabled. Try a newer interaction.")
+    else:
+        st.info("No interactions recorded yet. Start chatting to generate decision graphs!")
+
+with tab6:
+    st.title("⏱️ Temporal Leak Analytics")
+    
+    st.markdown("""
+    ### Slow-Extraction Attack Defense
+    
+    The temporal leak detector tracks cumulative sensitive information disclosure across multiple sessions per user.
+    This prevents attackers from slowly extracting sensitive data through repeated, seemingly benign queries.
+    
+    **Monitored Components:**
+    - Fraud detection rules and thresholds
+    - Verification workflows and security protocols
+    - System architecture and internal processes
+    - Security thresholds and PII detection methods
+    """)
+    
+    st.markdown("---")
+    
+    # Initialize temporal leak detector
+    if 'temporal_leak_detector' not in st.session_state:
+        from temporal_leak_detector import TemporalLeakDetector
+        st.session_state.temporal_leak_detector = TemporalLeakDetector()
+    
+    temporal_leak_detector = st.session_state.temporal_leak_detector
+    
+    # Get temporal leak stats
+    leak_stats = temporal_leak_detector.get_leak_statistics()
+    
+    st.markdown("### 📊 Overall Temporal Leak Statistics")
+    
+    stats_cols = st.columns(4)
+    with stats_cols[0]:
+        st.metric("Total Sessions Tracked", leak_stats['total_sessions'])
+    with stats_cols[1]:
+        st.metric("Blocked Sessions", leak_stats['blocked_sessions'])
+    with stats_cols[2]:
+        blocked_rate = (leak_stats['blocked_sessions'] / leak_stats['total_sessions'] * 100) if leak_stats['total_sessions'] > 0 else 0
+        st.metric("Block Rate", f"{blocked_rate:.1f}%")
+    with stats_cols[3]:
+        avg_coverage = leak_stats['average_coverage']
+        st.metric("Avg Disclosure", f"{avg_coverage:.1%}")
+    
+    st.markdown("---")
+    
+    # Per-user analysis
+    st.markdown("### 👤 Per-User Disclosure Analysis")
+    
+    user_sessions = leak_stats.get('user_sessions', {})
+    
+    if user_sessions:
+        # Create table of user disclosures
+        user_data = []
+        for user_id, session_data in sorted(user_sessions.items(), key=lambda x: x[1]['max_coverage'], reverse=True):
+            max_coverage = session_data['max_coverage']
+            session_count = session_data['session_count']
+            blocked = session_data.get('blocked', False)
+            
+            user_data.append({
+                'User ID': user_id,
+                'Sessions': session_count,
+                'Max Disclosure': f"{max_coverage:.1%}",
+                'Status': "🛡️ BLOCKED" if blocked else "✅ SAFE",
+                'Risk Level': "🔴 HIGH" if max_coverage > 0.6 else "🟡 MEDIUM" if max_coverage > 0.3 else "🟢 LOW"
+            })
+        
+        st.dataframe(user_data, use_container_width=True)
+        
+        st.markdown("---")
+        
+        # Detailed user analysis
+        st.markdown("### 🔍 Detailed User Analysis")
+        
+        selected_user = st.selectbox(
+            "Select a user to analyze:",
+            list(user_sessions.keys())
+        )
+        
+        if selected_user:
+            user_summary = temporal_leak_detector.get_user_summary(selected_user)
+            
+            detail_cols = st.columns(3)
+            with detail_cols[0]:
+                st.metric("Total Exposure", f"{user_summary['total_exposure']:.1%}")
+            with detail_cols[1]:
+                st.metric("Threshold", f"{user_summary['threshold']:.1%}")
+            with detail_cols[2]:
+                would_block = user_summary['would_block']
+                st.metric("Would Block?", "YES" if would_block else "NO", 
+                         delta="DANGER" if would_block else "SAFE",
+                         delta_color="inverse" if would_block else "normal")
+            
+            st.markdown("#### Topics Exposed")
+            topics_exposed = user_summary.get('topics_exposed', {})
+            if topics_exposed:
+                topic_data = [
+                    {'Topic ID': tid, 'Exposure': f"{score:.1%}"}
+                    for tid, score in topics_exposed.items()
+                ]
+                st.dataframe(topic_data, use_container_width=True)
+            else:
+                st.info("No topic exposures recorded for this user")
+    else:
+        st.info("No temporal leak data available yet. Interact with the agent using different user IDs to see cross-session tracking.")
+
+with tab7:
     st.title("⚙️ System Status & Configuration")
     
     st.markdown("### 🟢 System Health")
