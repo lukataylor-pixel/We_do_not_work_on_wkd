@@ -380,7 +380,7 @@ Be friendly and professional, but security comes first."""
                 'adversarial_check': adversarial_check,
                 'processing_time': processing_time,
                 'timestamp': time.strftime("%Y-%m-%d %H:%M:%S"),
-                'trace_id': trace_id if self.enable_langfuse else None,
+                'trace_id': trace_id,  # Always store trace_id for session tracking
                 'decision_flow':
                 decision_flow  # Agent decision timeline for observability
             }
@@ -408,7 +408,8 @@ Be friendly and professional, but security comes first."""
                     'similarity_score': 0.0
                 },
                 'processing_time': time.time() - start_time,
-                'timestamp': time.strftime("%Y-%m-%d %H:%M:%S")
+                'timestamp': time.strftime("%Y-%m-%d %H:%M:%S"),
+                'trace_id': trace_id  # Include trace_id for session continuity
             }
             self.interaction_log.append(error_interaction)
             return error_interaction

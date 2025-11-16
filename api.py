@@ -105,6 +105,9 @@ async def chat(request: ChatRequest):
     try:
         start_time = time.time()
         observer_result = None
+        
+        # Use trace_id as stable session identifier (client should send same trace_id for session continuity)
+        # If not provided, fall back to timestamp-based ID (won't enable gradient detection)
         session_id = request.trace_id or f"session_{int(time.time())}"
         
         # PRE-LLM HOOK: Prompt Observer Analysis
@@ -112,10 +115,42 @@ async def chat(request: ChatRequest):
             # Load blocked prompts KB for analysis
             blocked_prompts_kb = telemetry.get_blocked_prompts(limit=500)
             
+            # Build session context with PER-SESSION filtering for gradient detection
+            if request.trace_id:
+                # Client provided stable session ID - get interactions for THIS session only
+                session_interactions = telemetry.get_session_interactions(
+                    session_id=session_id,
+                    limit=10
+                )
+            else:
+                # No stable session ID - cannot reliably detect gradual attacks
+                # Use empty history with warning
+                session_interactions = []
+            
+            # Extract prompt strings in CHRONOLOGICAL order (oldest-first)
+            # The gradient detector uses [-5:] to get most recent, so order matters
+            previous_prompts = [
+                interaction['user_message']
+                for interaction in session_interactions  # Already in chronological order from SQL
+            ]
+            
+            session_context = {
+                'previous_prompts': previous_prompts,  # Chronological order for detector's [-5:] slice
+                'session_id': session_id,
+                'has_stable_session': request.trace_id is not None,
+                'metadata': [
+                    {
+                        'timestamp': interaction['timestamp'],
+                        'status': interaction['status']
+                    }
+                    for interaction in session_interactions
+                ]
+            }
+            
             # Analyze the user prompt BEFORE it reaches the LLM
             observer_result = analyze_user_prompt(
                 prompt=request.message,
-                session_context=None,  # Could be enhanced with session tracking
+                session_context=session_context,
                 blocked_prompts_kb=blocked_prompts_kb
             )
             

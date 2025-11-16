@@ -15,6 +15,23 @@ from typing import Dict, List, Optional, Tuple, Any
 from collections import Counter
 import math
 
+# Global model cache for fast inference (singleton pattern)
+_EMBEDDING_MODEL = None
+
+def _get_embedding_model():
+    """Get or initialize the embedding model once per process."""
+    global _EMBEDDING_MODEL
+    if _EMBEDDING_MODEL is None:
+        try:
+            from sentence_transformers import SentenceTransformer
+            print("Initializing embedding model for prompt observer...")
+            _EMBEDDING_MODEL = SentenceTransformer('all-MiniLM-L6-v2')
+            print("✅ Embedding model loaded successfully")
+        except Exception as e:
+            print(f"⚠️ Could not load embedding model: {e}")
+            _EMBEDDING_MODEL = False  # Mark as failed to prevent retries
+    return _EMBEDDING_MODEL if _EMBEDDING_MODEL is not False else None
+
 
 class PromptObserver:
     """
@@ -197,9 +214,10 @@ class PromptObserver:
             return False, 0.0, None
         
         try:
-            # Use sentence-transformers if available, otherwise return False
-            from sentence_transformers import SentenceTransformer
-            model = SentenceTransformer('all-MiniLM-L6-v2')
+            # Use cached embedding model (initialized once at module load)
+            model = _get_embedding_model()
+            if model is None:
+                return False, 0.0, None
             
             # Compute embedding for current prompt
             prompt_embedding = model.encode([prompt], show_progress_bar=False)[0]

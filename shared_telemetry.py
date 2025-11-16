@@ -228,6 +228,37 @@ class SharedTelemetry:
             conn.execute("DELETE FROM interactions")
             conn.commit()
     
+    def get_session_interactions(self, session_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+        """
+        Get interactions for a specific session.
+        
+        Args:
+            session_id: Session identifier to filter by
+            limit: Maximum number of interactions to return
+            
+        Returns:
+            List of interactions for this session, oldest-first
+        """
+        with self._get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT user_message, timestamp, status, final_response
+                FROM interactions
+                WHERE trace_id = ?
+                ORDER BY id ASC
+                LIMIT ?
+            """, (session_id, limit))
+            
+            interactions = []
+            for row in cursor.fetchall():
+                interactions.append({
+                    'user_message': row['user_message'],
+                    'timestamp': row['timestamp'],
+                    'status': row['status'],
+                    'final_response': row['final_response']
+                })
+            
+            return interactions
+    
     def get_blocked_prompts(self, limit: int = 1000) -> List[Dict[str, Any]]:
         """
         Get previously blocked prompts for use as knowledge base.
@@ -288,6 +319,9 @@ class SharedTelemetry:
         """
         Log a prompt observer analysis result.
         
+        If an entry already exists for this session+prompt, updates it instead of inserting.
+        This prevents duplicate rows when a prompt is initially logged then blocked.
+        
         Args:
             session_id: Session identifier
             prompt: The user prompt that was analyzed
@@ -297,20 +331,46 @@ class SharedTelemetry:
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
         
         with self._get_connection() as conn:
-            conn.execute("""
-                INSERT INTO prompt_observer_results
-                (session_id, prompt, risk_score, flags, explanations, details, blocked, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                session_id,
-                prompt,
-                result.get('risk_score', 0.0),
-                json.dumps(result.get('flags', {})),
-                json.dumps(result.get('explanations', [])),
-                json.dumps(result.get('details', {})),
-                1 if blocked else 0,
-                timestamp
-            ))
+            # Check if entry already exists for this session+prompt
+            cursor = conn.execute("""
+                SELECT id FROM prompt_observer_results
+                WHERE session_id = ? AND prompt = ?
+                ORDER BY id DESC
+                LIMIT 1
+            """, (session_id, prompt))
+            existing = cursor.fetchone()
+            
+            if existing:
+                # Update existing row to avoid duplicates
+                conn.execute("""
+                    UPDATE prompt_observer_results
+                    SET risk_score = ?, flags = ?, explanations = ?, details = ?, blocked = ?, timestamp = ?
+                    WHERE id = ?
+                """, (
+                    result.get('risk_score', 0.0),
+                    json.dumps(result.get('flags', {})),
+                    json.dumps(result.get('explanations', [])),
+                    json.dumps(result.get('details', {})),
+                    1 if blocked else 0,
+                    timestamp,
+                    existing['id']
+                ))
+            else:
+                # Insert new row
+                conn.execute("""
+                    INSERT INTO prompt_observer_results
+                    (session_id, prompt, risk_score, flags, explanations, details, blocked, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    session_id,
+                    prompt,
+                    result.get('risk_score', 0.0),
+                    json.dumps(result.get('flags', {})),
+                    json.dumps(result.get('explanations', [])),
+                    json.dumps(result.get('details', {})),
+                    1 if blocked else 0,
+                    timestamp
+                ))
             conn.commit()
             
             # Keep last 1000 observer results
