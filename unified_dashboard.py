@@ -440,13 +440,13 @@ with tab3:
         st.info("No interactions recorded yet. Start chatting to see analytics!")
 
 with tab4:
-    st.title("🔬 LangSmith Traces")
+    st.title("🔬 LangChain Observability")
     
     st.markdown("""
-    ### End-to-End Observability with LangSmith
+    ### End-to-End Tracing with LangFuse/LangSmith
     
-    LangSmith provides comprehensive tracing for the Guardian Agent's multi-stage security pipeline.
-    Each interaction is traced with parent-child span hierarchy showing:
+    This tab provides comprehensive tracing for the Guardian Agent's multi-stage security pipeline.
+    Each interaction can be traced with parent-child span hierarchy showing:
     - Input safety checks (adversarial pattern detection)
     - Agent reasoning and tool calls  
     - Output safety checks (PII leak prevention)
@@ -456,10 +456,13 @@ with tab4:
     
     st.markdown("---")
     
-    # Check if agent has LangSmith enabled
-    if hasattr(st.session_state.get('agent'), 'langsmith_enabled') and st.session_state.agent.langsmith_enabled:
-        st.success("✅ LangSmith Tracing: **ENABLED**")
-        st.markdown(f"**Project:** guardian-glass-agent")
+    # Check if agent has tracing enabled (LangFuse)
+    agent = st.session_state.get('agent')
+    tracing_enabled = hasattr(agent, 'enable_langfuse') and agent.enable_langfuse and agent.langfuse_handler is not None
+    
+    if tracing_enabled:
+        st.success("✅ **LangFuse Tracing: ENABLED**")
+        st.markdown("**Platform:** LangFuse Cloud")
         
         st.markdown("---")
         st.markdown("### 📊 Recent Traces")
@@ -479,27 +482,57 @@ with tab4:
             st.dataframe(trace_data, width='stretch')
             
             st.markdown("---")
-            st.info("🔗 **View traces at:** https://smith.langchain.com")
-            st.markdown("Navigate to your project 'guardian-glass-agent' to see detailed trace timelines, token usage, and costs.")
+            st.info("🔗 **View traces at:** https://cloud.langfuse.com")
+            st.markdown("Navigate to your project to see detailed trace timelines, token usage, and costs.")
         else:
             st.info("No traces recorded yet. Start chatting to generate traces!")
     else:
-        st.warning("⚠️ LangSmith Tracing: **NOT CONFIGURED**")
-        st.markdown("""
-        ### Setup Instructions
+        st.warning("⚠️ **LangFuse Tracing: NOT CONFIGURED**")
         
-        To enable LangSmith tracing for full observability:
+        # Check which keys are available
+        import os
+        has_langfuse = os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY")
+        has_langsmith = os.environ.get("LANGSMITH_API_KEY")
         
-        1. Sign up at https://smith.langchain.com
-        2. Create an API key in your account settings
-        3. Set the environment variable:
-           ```bash
-           export LANGSMITH_API_KEY="your-key-here"
-           ```
-        4. Restart the application
-        
-        **Note:** The system works without LangSmith but with limited observability features.
-        """)
+        if has_langsmith and not has_langfuse:
+            st.info("💡 **Note:** You have `LANGSMITH_API_KEY` configured, but this project uses **LangFuse** for tracing.")
+            st.markdown("""
+            ### Current Status
+            
+            The Guardian Agent is configured to use **LangFuse** (not LangSmith) for observability.
+            
+            **Option 1: Use LangFuse (Current Implementation)**
+            1. Sign up at https://cloud.langfuse.com
+            2. Create a project and get your API keys
+            3. Set environment variables in Secrets:
+               - `LANGFUSE_PUBLIC_KEY` = your public key
+               - `LANGFUSE_SECRET_KEY` = your secret key
+            4. Restart the application
+            
+            **Option 2: Migrate to LangSmith**
+            - You already have `LANGSMITH_API_KEY` configured
+            - Requires code changes to switch from LangFuse SDK to LangSmith
+            
+            **Note:** The system works without tracing but with limited observability features.
+            """)
+        else:
+            st.markdown("""
+            ### Setup Instructions
+            
+            To enable LangFuse tracing for full observability:
+            
+            1. Sign up at https://cloud.langfuse.com
+            2. Create a project and get your API keys
+            3. Set environment variables in Secrets:
+               - `LANGFUSE_PUBLIC_KEY` = your public key
+               - `LANGFUSE_SECRET_KEY` = your secret key
+            4. Restart the application
+            
+            **Alternative:** Use LangSmith (requires code changes)
+            - Already have `LANGSMITH_API_KEY`? The code needs updating to use LangSmith SDK instead of LangFuse.
+            
+            **Note:** The system works without tracing but with limited observability features.
+            """)
 
 with tab5:
     st.title("🌐 Interactive Decision Graph")
