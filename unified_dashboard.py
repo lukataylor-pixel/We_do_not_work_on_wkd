@@ -39,7 +39,15 @@ st.sidebar.markdown("**System Status**")
 st.sidebar.success("✅ Agent Online")
 st.sidebar.info(f"📊 Database: {stats['total_interactions']} records")
 
-tab1, tab2, tab3, tab4 = st.tabs(["💬 Live Chat & Monitor", "🔍 Trace Explorer", "📊 Analytics Dashboard", "⚙️ System Status"])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "💬 Live Chat & Monitor", 
+    "🔍 Trace Explorer", 
+    "📊 Analytics Dashboard",
+    "🔬 LangSmith Traces",
+    "🌐 Decision Graph", 
+    "⏱️ Temporal Leak Analytics",
+    "⚙️ System Status"
+])
 
 with tab1:
     st.title("💬 Live Chat & Safety Monitor")
@@ -230,48 +238,102 @@ with tab2:
             decision_flow = interaction.get('decision_flow', [])
             
             if decision_flow:
-                st.markdown("### 🔬 Agent Decision Flow Timeline")
-                
-                # Visual timeline with status indicators
-                timeline_cols = st.columns(len(decision_flow))
+                # Modern header with subtitle (dark mode compatible)
+                st.markdown("""
+                <div style='margin-bottom: 24px;'>
+                    <h3 style='margin-bottom: 8px;'>🔬 Decision Flow Analysis</h3>
+                    <p style='opacity: 0.7; font-size: 14px; margin: 0;'>Interactive glass-box view of the agent's security decision process</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Compact timeline with better spacing
+                num_stages = len(decision_flow)
+                cols = st.columns(num_stages * 2 - 1)
+
                 for stage_idx, stage in enumerate(decision_flow):
-                    with timeline_cols[stage_idx]:
-                        stage_status = stage.get('status', 'unknown')
-                        if stage_status == 'blocked':
-                            st.error(f"🛑 **{stage['stage_name']}**")
-                        elif stage_status in ['passed', 'safe']:
-                            st.success(f"✅ **{stage['stage_name']}**")
-                        else:
-                            st.info(f"🔄 **{stage['stage_name']}**")
-                        st.caption(f"{stage.get('duration', 0):.3f}s")
-                
-                st.markdown("---")
-                
-                # Explainability Panel - Interactive stage details
-                st.markdown("### 📋 Explainability Panel")
+                    stage_status = stage.get('status', 'unknown')
+                    stage_name = stage['stage_name']
+                    duration = stage.get('duration', 0)
+
+                    # Modern color scheme
+                    if stage_status == 'blocked':
+                        color = "#ef4444"
+                        bg_color = "#fef2f2"
+                        icon = "🛑"
+                    elif stage_status in ['passed', 'safe']:
+                        color = "#10b981"
+                        bg_color = "#f0fdf4"
+                        icon = "✅"
+                    else:
+                        color = "#3b82f6"
+                        bg_color = "#eff6ff"
+                        icon = "🔄"
+
+                    col_idx = stage_idx * 2
+                    with cols[col_idx]:
+                        st.markdown(f"""
+                        <div style='text-align: center; margin-bottom: 8px;'>
+                            <div style='
+                                background: {bg_color}30;
+                                border: 2px solid {color};
+                                color: {color};
+                                padding: 16px 12px;
+                                border-radius: 12px;
+                                font-weight: 600;
+                                font-size: 12px;
+                            '>
+                                <div style='font-size: 24px; margin-bottom: 6px;'>{icon}</div>
+                                <div style='opacity: 0.9; font-size: 11px; line-height: 1.4;'>{stage_name}</div>
+                                <div style='opacity: 0.6; font-size: 10px; margin-top: 4px;'>{duration:.2f}s</div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    if stage_idx < num_stages - 1:
+                        arrow_col_idx = stage_idx * 2 + 1
+                        with cols[arrow_col_idx]:
+                            st.markdown("<div style='text-align: center; font-size: 20px; opacity: 0.3; padding-top: 28px;'>→</div>", unsafe_allow_html=True)
+
+                # Stage selector with cleaner design
+                st.markdown("<div style='margin-top: 32px; margin-bottom: 16px;'></div>", unsafe_allow_html=True)
                 selected_stage = st.radio(
-                    "Click a stage to view details:",
+                    "**Select a stage to view details:**",
                     options=[s['stage_name'] for s in decision_flow],
                     horizontal=True,
-                    key=f"stage_selector_{interaction['timestamp']}_{interaction_idx}"
+                    key=f"stage_selector_{interaction['timestamp']}_{interaction_idx}",
+                    label_visibility="visible"
                 )
                 
                 # Find selected stage details
                 stage_details = next((s for s in decision_flow if s['stage_name'] == selected_stage), None)
                 
                 if stage_details:
-                    st.markdown(f"#### {stage_details['stage_name']}")
-                    
-                    detail_cols = st.columns(3)
+                    # Modern card-style detail panel (dark mode compatible)
+                    status_emoji = "🛑" if stage_details['status'] == 'blocked' else "✅" if stage_details['status'] == 'passed' else "🔄"
+                    status_color = "#ef4444" if stage_details['status'] == 'blocked' else "#10b981" if stage_details['status'] == 'passed' else "#3b82f6"
+
+                    st.markdown(f"""
+                    <div style='
+                        background: {status_color}15;
+                        border-left: 4px solid {status_color};
+                        padding: 20px;
+                        border-radius: 8px;
+                        margin: 20px 0;
+                    '>
+                        <h4 style='margin: 0 0 16px 0;'>{status_emoji} {stage_details['stage_name']}</h4>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    # Compact metrics row
+                    detail_cols = st.columns([1, 1, 2])
                     with detail_cols[0]:
-                        status_emoji = "🛑" if stage_details['status'] == 'blocked' else "✅" if stage_details['status'] == 'passed' else "🔄"
-                        st.metric("Status", f"{status_emoji} {stage_details['status'].upper()}")
+                        st.metric("Status", f"{stage_details['status'].upper()}")
                     with detail_cols[1]:
-                        st.metric("Duration", f"{stage_details.get('duration', 0):.3f}s")
+                        st.metric("Duration", f"{stage_details.get('duration', 0):.2f}s")
                     with detail_cols[2]:
-                        st.metric("Stage", stage_details['stage'])
-                    
-                    st.markdown("**Details:**")
+                        st.metric("Stage ID", f"`{stage_details['stage']}`")
+
+                    st.markdown("<div style='margin-top: 24px;'></div>", unsafe_allow_html=True)
                     details = stage_details.get('details', {})
                     
                     # Stage-specific visualizations
@@ -285,30 +347,139 @@ with tab2:
                             st.success(f"✅ No adversarial patterns detected (checked {details.get('total_patterns_checked', 54)} patterns)")
                     
                     elif stage_details['stage'] == 'agent_reasoning':
-                        st.info(f"**Agent processed {details.get('message_count', 0)} messages**")
+                        # Compact processing summary
+                        process_col1, process_col2 = st.columns(2)
+                        with process_col1:
+                            st.metric("Messages", details.get('message_count', 0))
+                        with process_col2:
+                            st.metric("Tools Used", len(details.get('tool_calls', [])))
+
+                        # Tool execution cards
                         if details.get('has_tool_calls'):
-                            st.markdown("**Tool Calls:**")
-                            for tool in details.get('tool_calls', []):
-                                st.code(f"{tool.get('tool', 'unknown')}({tool.get('args', {})})", language="python")
-                        st.markdown("**Response Preview:**")
-                        st.code(details.get('response_preview', 'N/A'), language=None)
+                            st.markdown("<div style='margin-top: 20px;'><strong>🛠️ Tool Execution</strong></div>", unsafe_allow_html=True)
+                            for idx, tool in enumerate(details.get('tool_calls', []), 1):
+                                tool_name = tool.get('tool', 'unknown')
+                                tool_icon = "🔐" if tool_name == 'verify_customer' else "💰"
+                                tool_desc = "Customer verification" if tool_name == 'verify_customer' else "Balance retrieval"
+
+                                st.markdown(f"""
+                                <div style='
+                                    background: rgba(100, 100, 100, 0.1);
+                                    border: 1px solid rgba(150, 150, 150, 0.2);
+                                    border-radius: 8px;
+                                    padding: 12px 16px;
+                                    margin: 8px 0;
+                                '>
+                                    <div style='display: flex; align-items: center; gap: 8px; margin-bottom: 8px;'>
+                                        <span style='font-size: 18px;'>{tool_icon}</span>
+                                        <strong>{tool_name}</strong>
+                                        <span style='opacity: 0.6; font-size: 13px;'>• {tool_desc}</span>
+                                    </div>
+                                    <code style='background: rgba(0, 0, 0, 0.1); padding: 8px; border-radius: 4px; display: block; font-size: 12px;'>{tool_name}({tool.get('args', {})})</code>
+                                </div>
+                                """, unsafe_allow_html=True)
+                        else:
+                            st.info("ℹ️ Direct response (no tools required)")
+
+                        # Modern encrypted response card
+                        st.markdown("<div style='margin-top: 24px;'><strong>🔒 Encryption</strong></div>", unsafe_allow_html=True)
+                        response_preview = details.get('response_preview', 'N/A')
+                        if response_preview and response_preview != 'N/A':
+                            st.markdown(f"""
+                            <div style='
+                                background: rgba(16, 185, 129, 0.1);
+                                border: 1px solid rgba(16, 185, 129, 0.3);
+                                border-radius: 8px;
+                                padding: 16px;
+                                margin: 8px 0;
+                            '>
+                                <div style='color: #10b981; font-size: 13px; margin-bottom: 8px;'>
+                                    ✅ Response encrypted immediately (AES-256-GCM)
+                                </div>
+                                <code style='background: rgba(0, 0, 0, 0.2); padding: 12px; border-radius: 4px; display: block; font-size: 11px; opacity: 0.8; word-break: break-all;'>{response_preview[:150]}...</code>
+                                <div style='opacity: 0.7; font-size: 11px; margin-top: 8px;'>
+                                    Encrypted payload will be decrypted for safety checks, then re-encrypted for storage
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        else:
+                            st.warning("No response preview available")
                     
                     elif stage_details['stage'] == 'output_safety_check':
                         similarity = details.get('similarity_score', 0)
                         threshold = details.get('threshold', 0.7)
-                        
+
                         if not details.get('safe'):
                             st.error("🛡️ **PII Leak Blocked**")
-                            st.markdown(f"**Similarity Evidence:**")
-                            score_color = "red" if similarity > threshold else "orange"
-                            st.markdown(f"- Semantic similarity: <span style='color:{score_color}'>{similarity:.2%}</span> (threshold: {threshold:.2%})", unsafe_allow_html=True)
-                            st.markdown(f"- Detection method: `{details.get('method', 'unknown')}`")
-                            if details.get('matched_topic'):
-                                st.markdown(f"- Matched customer data: `{details.get('matched_topic')}`")
-                            
-                            if details.get('agent_attempted_response'):
-                                st.markdown("**⚠️ Agent's Attempted Response (Blocked):**")
-                                st.code(details.get('agent_attempted_response'), language=None)
+
+                            # Similarity Score Visualization
+                            st.markdown("### 📊 Similarity Evidence")
+                            score_col1, score_col2, score_col3 = st.columns(3)
+                            with score_col1:
+                                score_color = "red" if similarity > threshold else "orange"
+                                st.markdown(f"<h3 style='color:{score_color}'>{similarity:.2%}</h3>", unsafe_allow_html=True)
+                                st.caption("Similarity Score")
+                            with score_col2:
+                                st.markdown(f"<h3>{threshold:.2%}</h3>", unsafe_allow_html=True)
+                                st.caption("Threshold")
+                            with score_col3:
+                                st.markdown(f"<h3>`{details.get('method', 'unknown')}`</h3>", unsafe_allow_html=True)
+                                st.caption("Detection Method")
+
+                            # Matched Customer Record Table
+                            matched_customer = details.get('matched_customer_record')
+                            if matched_customer:
+                                st.markdown("### 🎯 Matched Protected Customer Data")
+                                st.warning("⚠️ The agent's response was attempting to leak the following customer information:")
+
+                                # Display as a nicely formatted table
+                                import pandas as pd
+                                customer_df = pd.DataFrame([matched_customer])
+                                st.dataframe(
+                                    customer_df,
+                                    width='stretch',
+                                    hide_index=True,
+                                    column_config={
+                                        "customer_id": st.column_config.TextColumn("Customer ID", width="small"),
+                                        "name": st.column_config.TextColumn("Name", width="medium"),
+                                        "card_last4": st.column_config.TextColumn("Card Last 4", width="small"),
+                                        "address": st.column_config.TextColumn("Address", width="large"),
+                                        "postcode": st.column_config.TextColumn("Postcode", width="small"),
+                                        "balance": st.column_config.NumberColumn("Balance (£)", format="£%.2f", width="medium")
+                                    }
+                                )
+
+                            # Visual Diff - Agent's Attempted Response
+                            attempted_response_encrypted = details.get('agent_attempted_response_encrypted')
+                            if attempted_response_encrypted:
+                                st.markdown("### 🔍 Agent's Attempted Response (Blocked)")
+                                st.info("This is what the agent tried to say before the PII leak was detected and blocked:")
+
+                                # Decrypt the attempted response for display
+                                try:
+                                    from encryption import decrypt_text, get_payload_preview
+                                    attempted_response = get_payload_preview(attempted_response_encrypted, max_length=500)
+                                except Exception as e:
+                                    attempted_response = f"[Unable to decrypt: {str(e)}]"
+
+                                # Highlight matching PII in the response
+                                if matched_customer:
+                                    highlighted_response = attempted_response
+                                    # Highlight customer name, address, balance, etc.
+                                    for key, value in matched_customer.items():
+                                        if value and str(value).lower() in highlighted_response.lower():
+                                            # Case-insensitive replacement with red highlighting
+                                            import re
+                                            pattern = re.compile(re.escape(str(value)), re.IGNORECASE)
+                                            highlighted_response = pattern.sub(
+                                                lambda m: f'<span style="background-color: #ff6b6b; color: white; padding: 2px 4px; border-radius: 3px; font-weight: bold;">{m.group(0)}</span>',
+                                                highlighted_response
+                                            )
+
+                                    st.markdown(highlighted_response, unsafe_allow_html=True)
+                                    st.caption("🔴 Highlighted text = Matched customer PII that triggered the block")
+                                else:
+                                    st.code(attempted_response, language=None)
                         else:
                             st.success(f"✅ No PII leak detected (similarity: {similarity:.2%} < {threshold:.2%})")
                     
@@ -433,6 +604,363 @@ with tab3:
         st.info("No interactions recorded yet. Start chatting to see analytics!")
 
 with tab4:
+    st.title("🔬 LangChain Observability")
+    
+    st.markdown("""
+    ### End-to-End Tracing with LangFuse/LangSmith
+    
+    This tab provides comprehensive tracing for the Guardian Agent's multi-stage security pipeline.
+    Each interaction can be traced with parent-child span hierarchy showing:
+    - Input safety checks (adversarial pattern detection)
+    - Agent reasoning and tool calls  
+    - Output safety checks (PII leak prevention)
+    - Temporal leak analysis
+    - Final decision with full reasoning chain
+    """)
+    
+    st.markdown("---")
+    
+    # Check if LangFuse is configured (check environment variables directly since agent uses lazy loading)
+    import os
+    has_langfuse = os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY")
+    
+    if has_langfuse:
+        st.success("✅ **LangFuse Tracing: ENABLED**")
+        st.markdown("**Platform:** LangFuse Cloud")
+        
+        st.markdown("---")
+        st.markdown("### 📊 Recent Traces")
+        
+        # Display recent interactions with trace IDs
+        all_interactions = telemetry.get_all_interactions()
+        if all_interactions:
+            trace_data = []
+            for i in sorted(all_interactions, key=lambda x: x['timestamp'], reverse=True)[:10]:
+                trace_data.append({
+                    'Timestamp': i['timestamp'][:19],
+                    'Status': '🛡️ BLOCKED' if i['status'] == 'blocked' else '✅ SAFE',
+                    'Query': i['user_message'][:60] + "...",
+                    'Trace ID': i.get('trace_id', 'N/A')[:16] + "..." if i.get('trace_id') else 'N/A'
+                })
+            
+            st.dataframe(trace_data, width='stretch')
+            
+            st.markdown("---")
+            st.info("🔗 **View traces at:** https://cloud.langfuse.com")
+            st.markdown("Navigate to your project to see detailed trace timelines, token usage, and costs.")
+        else:
+            st.info("No traces recorded yet. Start chatting to generate traces!")
+    else:
+        st.warning("⚠️ **LangFuse Tracing: NOT CONFIGURED**")
+        
+        # Check which keys are available
+        has_langsmith = os.environ.get("LANGSMITH_API_KEY")
+        
+        if has_langsmith and not has_langfuse:
+            st.info("💡 **Note:** You have `LANGSMITH_API_KEY` configured, but this project uses **LangFuse** for tracing.")
+            st.markdown("""
+            ### Current Status
+            
+            The Guardian Agent is configured to use **LangFuse** (not LangSmith) for observability.
+            
+            **Option 1: Use LangFuse (Current Implementation)**
+            1. Sign up at https://cloud.langfuse.com
+            2. Create a project and get your API keys
+            3. Set environment variables in Secrets:
+               - `LANGFUSE_PUBLIC_KEY` = your public key
+               - `LANGFUSE_SECRET_KEY` = your secret key
+            4. Restart the application
+            
+            **Option 2: Migrate to LangSmith**
+            - You already have `LANGSMITH_API_KEY` configured
+            - Requires code changes to switch from LangFuse SDK to LangSmith
+            
+            **Note:** The system works without tracing but with limited observability features.
+            """)
+        else:
+            st.markdown("""
+            ### Setup Instructions
+            
+            To enable LangFuse tracing for full observability:
+            
+            1. Sign up at https://cloud.langfuse.com
+            2. Create a project and get your API keys
+            3. Set environment variables in Secrets:
+               - `LANGFUSE_PUBLIC_KEY` = your public key
+               - `LANGFUSE_SECRET_KEY` = your secret key
+            4. Restart the application
+            
+            **Alternative:** Use LangSmith (requires code changes)
+            - Already have `LANGSMITH_API_KEY`? The code needs updating to use LangSmith SDK instead of LangFuse.
+            
+            **Note:** The system works without tracing but with limited observability features.
+            """)
+
+with tab5:
+    st.title("🌐 Interactive Decision Graph")
+    
+    st.markdown("""
+    ### Agent Decision Flow Visualization
+    
+    This graph shows the multi-stage decision flow for each interaction:
+    - **User Input** → **Adversarial Check** → **Agent Reasoning** → **PII Filter** → **Final Decision**
+    
+    - **Green nodes**: Safe/passed stages
+    - **Orange nodes**: Warning/suspicious stages  
+    - **Red nodes**: Blocked/rejected stages
+    
+    Click and hover over nodes to see detailed metadata for each stage.
+    """)
+    
+    st.markdown("---")
+    
+    # Select a trace to visualize
+    all_interactions = telemetry.get_all_interactions()
+    
+    if all_interactions:
+        interaction_options = [
+            f"[{i['timestamp'][:19]}] {i['user_message'][:50]}... ({i['status']})"
+            for i in sorted(all_interactions, key=lambda x: x['timestamp'], reverse=True)[:20]
+        ]
+        
+        selected_idx = st.selectbox(
+            "Select an interaction to visualize:",
+            range(len(interaction_options)),
+            format_func=lambda x: interaction_options[x]
+        )
+        
+        selected_interaction = sorted(all_interactions, key=lambda x: x['timestamp'], reverse=True)[selected_idx]
+        
+        st.markdown("---")
+        
+        # Generate decision graph using Plotly
+        decision_flow = selected_interaction.get('decision_flow', [])
+        
+        if decision_flow:
+            try:
+                import plotly.graph_objects as go
+                import networkx as nx
+                
+                # Create directed graph
+                G = nx.DiGraph()
+                
+                # Add nodes for each stage
+                stage_names = []
+                for idx, stage in enumerate(decision_flow):
+                    stage_name = f"{idx+1}. {stage['stage']}"
+                    stage_names.append(stage_name)
+                    G.add_node(stage_name, **stage)
+                
+                # Add edges between consecutive stages
+                for i in range(len(stage_names) - 1):
+                    G.add_edge(stage_names[i], stage_names[i+1])
+                
+                # Create layout
+                pos = nx.spring_layout(G, seed=42)
+                
+                # Extract node positions
+                edge_x = []
+                edge_y = []
+                for edge in G.edges():
+                    x0, y0 = pos[edge[0]]
+                    x1, y1 = pos[edge[1]]
+                    edge_x.extend([x0, x1, None])
+                    edge_y.extend([y0, y1, None])
+                
+                edge_trace = go.Scatter(
+                    x=edge_x, y=edge_y,
+                    line=dict(width=2, color='#888'),
+                    hoverinfo='none',
+                    mode='lines'
+                )
+                
+                node_x = []
+                node_y = []
+                node_colors = []
+                node_text = []
+                
+                for node in G.nodes():
+                    x, y = pos[node]
+                    node_x.append(x)
+                    node_y.append(y)
+                    
+                    # Color by status
+                    node_data = G.nodes[node]
+                    status = node_data.get('status', 'unknown')
+                    if status in ['blocked', 'fail']:
+                        node_colors.append('#ff4444')
+                    elif status in ['warning', 'suspicious']:
+                        node_colors.append('#ffaa00')
+                    else:
+                        node_colors.append('#44ff44')
+                    
+                    # Create hover text
+                    hover_text = f"<b>{node}</b><br>"
+                    hover_text += f"Status: {status}<br>"
+                    hover_text += f"Duration: {node_data.get('duration', 0):.3f}s<br>"
+                    if node_data.get('details'):
+                        hover_text += f"Details: {str(node_data['details'])[:100]}"
+                    node_text.append(hover_text)
+                
+                node_trace = go.Scatter(
+                    x=node_x, y=node_y,
+                    mode='markers+text',
+                    hoverinfo='text',
+                    text=[n.split('. ')[1] if '. ' in n else n for n in G.nodes()],
+                    textposition="top center",
+                    hovertext=node_text,
+                    marker=dict(
+                        showscale=False,
+                        color=node_colors,
+                        size=30,
+                        line_width=2
+                    )
+                )
+                
+                fig = go.Figure(data=[edge_trace, node_trace],
+                              layout=go.Layout(
+                                  showlegend=False,
+                                  hovermode='closest',
+                                  margin=dict(b=0,l=0,r=0,t=0),
+                                  xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                  yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                                  height=500
+                              ))
+                
+                st.plotly_chart(fig, use_container_width=True)
+                
+                st.markdown("---")
+                st.markdown("### 📊 Graph Statistics")
+                
+                total_stages = len(decision_flow)
+                blocked_stages = sum(1 for s in decision_flow if s['status'] == 'blocked')
+                passed_stages = sum(1 for s in decision_flow if s['status'] in ['passed', 'safe'])
+                total_time = sum(s.get('duration', 0) for s in decision_flow)
+                
+                graph_cols = st.columns(4)
+                with graph_cols[0]:
+                    st.metric("Total Stages", total_stages)
+                with graph_cols[1]:
+                    st.metric("Passed", passed_stages)
+                with graph_cols[2]:
+                    st.metric("Blocked", blocked_stages)
+                with graph_cols[3]:
+                    st.metric("Total Time", f"{total_time:.3f}s")
+                    
+            except Exception as e:
+                st.error(f"Error generating decision graph: {str(e)}")
+                st.info("Make sure the selected interaction has a complete decision flow.")
+        else:
+            st.warning("⚠️ No decision flow data available for this interaction")
+            st.info("Decision flow tracking may not be enabled. Try a newer interaction.")
+    else:
+        st.info("No interactions recorded yet. Start chatting to generate decision graphs!")
+
+with tab6:
+    st.title("⏱️ Temporal Leak Analytics")
+    
+    st.markdown("""
+    ### Slow-Extraction Attack Defense
+    
+    The temporal leak detector tracks cumulative sensitive information disclosure across multiple sessions per user.
+    This prevents attackers from slowly extracting sensitive data through repeated, seemingly benign queries.
+    
+    **Monitored Components:**
+    - Fraud detection rules and thresholds
+    - Verification workflows and security protocols
+    - System architecture and internal processes
+    - Security thresholds and PII detection methods
+    """)
+    
+    st.markdown("---")
+    
+    # Initialize temporal leak detector
+    if 'temporal_leak_detector' not in st.session_state:
+        from temporal_leak_detector import TemporalLeakDetector
+        st.session_state.temporal_leak_detector = TemporalLeakDetector()
+    
+    temporal_leak_detector = st.session_state.temporal_leak_detector
+    
+    # Get temporal leak stats
+    leak_stats = temporal_leak_detector.get_leak_statistics()
+    
+    st.markdown("### 📊 Overall Temporal Leak Statistics")
+    
+    stats_cols = st.columns(4)
+    with stats_cols[0]:
+        st.metric("Total Sessions Tracked", leak_stats['total_sessions'])
+    with stats_cols[1]:
+        st.metric("Blocked Sessions", leak_stats['blocked_sessions'])
+    with stats_cols[2]:
+        blocked_rate = (leak_stats['blocked_sessions'] / leak_stats['total_sessions'] * 100) if leak_stats['total_sessions'] > 0 else 0
+        st.metric("Block Rate", f"{blocked_rate:.1f}%")
+    with stats_cols[3]:
+        avg_coverage = leak_stats['average_coverage']
+        st.metric("Avg Disclosure", f"{avg_coverage:.1%}")
+    
+    st.markdown("---")
+    
+    # Per-user analysis
+    st.markdown("### 👤 Per-User Disclosure Analysis")
+    
+    user_sessions = leak_stats.get('user_sessions', {})
+    
+    if user_sessions:
+        # Create table of user disclosures
+        user_data = []
+        for user_id, session_data in sorted(user_sessions.items(), key=lambda x: x[1]['max_coverage'], reverse=True):
+            max_coverage = session_data['max_coverage']
+            session_count = session_data['session_count']
+            blocked = session_data.get('blocked', False)
+            
+            user_data.append({
+                'User ID': user_id,
+                'Sessions': session_count,
+                'Max Disclosure': f"{max_coverage:.1%}",
+                'Status': "🛡️ BLOCKED" if blocked else "✅ SAFE",
+                'Risk Level': "🔴 HIGH" if max_coverage > 0.6 else "🟡 MEDIUM" if max_coverage > 0.3 else "🟢 LOW"
+            })
+        
+        st.dataframe(user_data, use_container_width=True)
+        
+        st.markdown("---")
+        
+        # Detailed user analysis
+        st.markdown("### 🔍 Detailed User Analysis")
+        
+        selected_user = st.selectbox(
+            "Select a user to analyze:",
+            list(user_sessions.keys())
+        )
+        
+        if selected_user:
+            user_summary = temporal_leak_detector.get_user_summary(selected_user)
+            
+            detail_cols = st.columns(3)
+            with detail_cols[0]:
+                st.metric("Total Exposure", f"{user_summary['total_exposure']:.1%}")
+            with detail_cols[1]:
+                st.metric("Threshold", f"{user_summary['threshold']:.1%}")
+            with detail_cols[2]:
+                would_block = user_summary['would_block']
+                st.metric("Would Block?", "YES" if would_block else "NO", 
+                         delta="DANGER" if would_block else "SAFE",
+                         delta_color="inverse" if would_block else "normal")
+            
+            st.markdown("#### Topics Exposed")
+            topics_exposed = user_summary.get('topics_exposed', {})
+            if topics_exposed:
+                topic_data = [
+                    {'Topic ID': tid, 'Exposure': f"{score:.1%}"}
+                    for tid, score in topics_exposed.items()
+                ]
+                st.dataframe(topic_data, use_container_width=True)
+            else:
+                st.info("No topic exposures recorded for this user")
+    else:
+        st.info("No temporal leak data available yet. Interact with the agent using different user IDs to see cross-session tracking.")
+
+with tab7:
     st.title("⚙️ System Status & Configuration")
     
     st.markdown("### 🟢 System Health")

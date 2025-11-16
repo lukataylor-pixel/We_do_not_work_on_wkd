@@ -41,6 +41,8 @@ class SharedTelemetry:
                     processing_time REAL,
                     timestamp TEXT,
                     trace_id TEXT,
+                    decision_flow JSON,
+                    adversarial_check JSON,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -50,7 +52,7 @@ class SharedTelemetry:
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_timestamp ON interactions(timestamp)
             """)
-            
+
             # Prompt observer results table
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS prompt_observer_results (
@@ -75,7 +77,18 @@ class SharedTelemetry:
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_po_blocked ON prompt_observer_results(blocked)
             """)
-            
+
+            # Migration: Add decision_flow and adversarial_check columns if they don't exist
+            try:
+                conn.execute("ALTER TABLE interactions ADD COLUMN decision_flow JSON")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
+            try:
+                conn.execute("ALTER TABLE interactions ADD COLUMN adversarial_check JSON")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
             conn.commit()
     
     def log_interaction(self, interaction: Dict[str, Any]):
@@ -93,8 +106,8 @@ class SharedTelemetry:
             conn.execute("""
                 INSERT INTO interactions 
                 (user_message, agent_original_response, final_response, status, 
-                 safety_result, processing_time, timestamp, trace_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                 safety_result, processing_time, timestamp, trace_id, decision_flow, adversarial_check)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 interaction.get('user_message'),
                 interaction.get('agent_original_response'),
@@ -103,7 +116,9 @@ class SharedTelemetry:
                 json.dumps(interaction.get('safety_result', {})),
                 interaction.get('processing_time'),
                 interaction.get('timestamp'),
-                interaction.get('trace_id')
+                interaction.get('trace_id'),
+                json.dumps(interaction.get('decision_flow', [])),
+                json.dumps(interaction.get('adversarial_check', {}))
             ))
             conn.commit()
             
@@ -128,6 +143,17 @@ class SharedTelemetry:
             
             interactions = []
             for row in cursor.fetchall():
+                # Parse decision_flow and adversarial_check safely (columns may not exist in old records)
+                try:
+                    decision_flow = json.loads(row['decision_flow']) if row['decision_flow'] else []
+                except (KeyError, TypeError):
+                    decision_flow = []
+                
+                try:
+                    adversarial_check = json.loads(row['adversarial_check']) if row['adversarial_check'] else {}
+                except (KeyError, TypeError):
+                    adversarial_check = {}
+                
                 interactions.append({
                     'user_message': row['user_message'],
                     'agent_original_response': row['agent_original_response'],
@@ -136,7 +162,9 @@ class SharedTelemetry:
                     'safety_result': json.loads(row['safety_result']) if row['safety_result'] else {},
                     'processing_time': row['processing_time'],
                     'timestamp': row['timestamp'],
-                    'trace_id': row['trace_id']
+                    'trace_id': row['trace_id'],
+                    'decision_flow': decision_flow,
+                    'adversarial_check': adversarial_check
                 })
             
             return interactions
