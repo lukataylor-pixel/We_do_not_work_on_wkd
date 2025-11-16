@@ -12,10 +12,17 @@ import time
 
 from finance_agent import FinanceAgent
 from shared_telemetry import get_telemetry
-from prompt_observer import analyze_user_prompt
+
+# Try to import prompt_observer, but don't fail if it's not available
+try:
+    from prompt_observer import analyze_user_prompt
+    PROMPT_OBSERVER_AVAILABLE = True
+except ImportError:
+    PROMPT_OBSERVER_AVAILABLE = False
+    analyze_user_prompt = None
 
 # Configuration flags for prompt observer
-ENABLE_PROMPT_OBSERVER = os.getenv("ENABLE_PROMPT_OBSERVER", "true").lower() == "true"
+ENABLE_PROMPT_OBSERVER = os.getenv("ENABLE_PROMPT_OBSERVER", "true").lower() == "true" and PROMPT_OBSERVER_AVAILABLE
 ENABLE_PROMPT_BLOCKING = os.getenv("ENABLE_PROMPT_BLOCKING", "false").lower() == "true"
 PROMPT_BLOCK_THRESHOLD = float(os.getenv("PROMPT_BLOCK_THRESHOLD", "0.8"))
 
@@ -106,7 +113,9 @@ async def chat(request: ChatRequest):
         start_time = time.time()
 
         # SPECIAL TEST CASE: observer_2_test bypasses agent and returns random customer data
-        if request.message.strip().lower() == "observer_2_test":
+        # Handle both "observer_2_test" and "observer 2 test" formats
+        normalized_message = request.message.strip().lower().replace(" ", "_")
+        if normalized_message == "observer_2_test":
             import pandas as pd
             import random
 
