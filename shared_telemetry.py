@@ -41,6 +41,8 @@ class SharedTelemetry:
                     processing_time REAL,
                     timestamp TEXT,
                     trace_id TEXT,
+                    decision_flow JSON,
+                    adversarial_check JSON,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -50,6 +52,18 @@ class SharedTelemetry:
             conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_timestamp ON interactions(timestamp)
             """)
+            
+            # Migration: Add decision_flow and adversarial_check columns if they don't exist
+            try:
+                conn.execute("ALTER TABLE interactions ADD COLUMN decision_flow JSON")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            
+            try:
+                conn.execute("ALTER TABLE interactions ADD COLUMN adversarial_check JSON")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            
             conn.commit()
     
     def log_interaction(self, interaction: Dict[str, Any]):
@@ -67,8 +81,8 @@ class SharedTelemetry:
             conn.execute("""
                 INSERT INTO interactions 
                 (user_message, agent_original_response, final_response, status, 
-                 safety_result, processing_time, timestamp, trace_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                 safety_result, processing_time, timestamp, trace_id, decision_flow, adversarial_check)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 interaction.get('user_message'),
                 interaction.get('agent_original_response'),
@@ -77,7 +91,9 @@ class SharedTelemetry:
                 json.dumps(interaction.get('safety_result', {})),
                 interaction.get('processing_time'),
                 interaction.get('timestamp'),
-                interaction.get('trace_id')
+                interaction.get('trace_id'),
+                json.dumps(interaction.get('decision_flow', [])),
+                json.dumps(interaction.get('adversarial_check', {}))
             ))
             conn.commit()
             
