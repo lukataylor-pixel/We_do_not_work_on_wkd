@@ -118,6 +118,17 @@ class SharedTelemetry:
             
             interactions = []
             for row in cursor.fetchall():
+                # Parse decision_flow and adversarial_check safely (columns may not exist in old records)
+                try:
+                    decision_flow = json.loads(row['decision_flow']) if row['decision_flow'] else []
+                except (KeyError, TypeError):
+                    decision_flow = []
+                
+                try:
+                    adversarial_check = json.loads(row['adversarial_check']) if row['adversarial_check'] else {}
+                except (KeyError, TypeError):
+                    adversarial_check = {}
+                
                 interactions.append({
                     'user_message': row['user_message'],
                     'agent_original_response': row['agent_original_response'],
@@ -126,7 +137,9 @@ class SharedTelemetry:
                     'safety_result': json.loads(row['safety_result']) if row['safety_result'] else {},
                     'processing_time': row['processing_time'],
                     'timestamp': row['timestamp'],
-                    'trace_id': row['trace_id']
+                    'trace_id': row['trace_id'],
+                    'decision_flow': decision_flow,
+                    'adversarial_check': adversarial_check
                 })
             
             return interactions
