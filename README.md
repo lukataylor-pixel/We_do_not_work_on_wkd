@@ -2,6 +2,28 @@
 
 A production-ready customer support agent for SecureBank with **multi-layered security defenses** against adversarial attacks, PII leakage prevention, and comprehensive glass-box observability. Built for hackathon **Track C (Red-Teaming Defense)** and **Track B (Glass-Box Observability)**.
 
+---
+
+## 📚 Documentation for Judges
+
+**For Berkeley LLM Agents Hackathon evaluators**, we've prepared comprehensive documentation:
+
+### Quick Links
+- **[START HERE - Judge's Guide](./docs/START_HERE.md)** 📖 - Navigate all documentation
+- **[5-Minute Setup Guide](./docs/SETUP.md)** ⚡ - Get running quickly
+- **[Evaluation Results Summary](./docs/EVALUATION_SUMMARY.md)** 📊 - Key metrics (0% ASR, 100% accuracy)
+- **[Project Overview](./docs/PROJECT_OVERVIEW.md)** 🎯 - Problem, solution, impact
+- **[Architecture Deep Dive](./docs/ARCHITECTURE.md)** 🏗️ - Technical implementation
+- **[Full Evaluation Report](./docs/EVALUATION.md)** 📈 - Comprehensive benchmark
+- **[Security Improvements](./docs/IMPROVEMENTS.md)** 🔒 - Development iteration
+
+### Quick Evaluation Path
+1. Go to [docs/START_HERE.md](./docs/START_HERE.md)
+2. Follow the 5-minute setup
+3. Review evaluation results (0% Attack Success Rate achieved)
+
+---
+
 ## 🎯 Overview
 
 This project demonstrates enterprise-grade AI security through defense-in-depth architecture. The SecureBank Support Agent implements three critical security layers:
