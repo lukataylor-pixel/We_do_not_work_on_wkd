@@ -175,21 +175,13 @@ Be friendly and professional, but security comes first."""
             }
         })
 
-        # Create LangFuse trace if enabled
-        if self.enable_langfuse and self.langfuse_handler:
-            if trace_id:
-                self.langfuse_handler.set_trace_id(trace_id)
-            trace_id = self.langfuse_handler.get_trace_id()
-
-            # Log adversarial detection
-            if adversarial_check['is_adversarial']:
-                self.langfuse_handler.event(
-                    name="adversarial_input_detected",
-                    metadata={
-                        "matched_patterns":
-                        adversarial_check['matched_patterns'],
-                        "pattern_count": adversarial_check['pattern_count']
-                    })
+        # Generate trace ID for tracking (LangFuse CallbackHandler manages tracing automatically)
+        if not trace_id:
+            import uuid
+            trace_id = str(uuid.uuid4())
+        
+        # Note: LangFuse CallbackHandler automatically traces when passed as callback
+        # Manual event logging removed as it's handled by the callback handler
 
         messages = [
             SystemMessage(content=self.system_prompt),
@@ -251,13 +243,7 @@ Be friendly and professional, but security comes first."""
             # Pass encrypted payload to safety classifier (it will decrypt internally)
             output_check_start = time.time()
 
-            # Log safety check to LangFuse
-            if self.enable_langfuse and self.langfuse_handler:
-                safety_span = self.langfuse_handler.trace(
-                    name="safety_check",
-                    input=get_payload_preview(encrypted_response),
-                    metadata={"threshold": self.safety_classifier.threshold})
-
+            # Note: LangFuse CallbackHandler automatically traces all operations
             safety_result = self.safety_classifier.check_safety(
                 encrypted_response)
 
@@ -289,20 +275,6 @@ Be friendly and professional, but security comes first."""
                 }
             })
 
-            # Update safety span with results
-            if self.enable_langfuse and self.langfuse_handler:
-                self.langfuse_handler.span(
-                    name="safety_classification",
-                    input=final_message,
-                    output=safety_result,
-                    metadata={
-                        "method": safety_result.get('method'),
-                        "similarity_score":
-                        safety_result.get('similarity_score'),
-                        "safe": safety_result.get('safe'),
-                        "matched_topic": safety_result.get('matched_topic')
-                    })
-
             processing_time = time.time() - start_time
 
             # Stage 4: Final Decision
@@ -314,19 +286,6 @@ Be friendly and professional, but security comes first."""
                 response_text = "I cannot process this request. For security reasons, I can only help with legitimate account inquiries after proper verification."
                 status = "blocked"
                 block_reason = "adversarial_input"
-
-                # Log blocked adversarial request
-                if self.enable_langfuse and self.langfuse_handler:
-                    self.langfuse_handler.event(
-                        name="adversarial_request_blocked",
-                        metadata={
-                            "matched_patterns":
-                            adversarial_check['matched_patterns'],
-                            "pattern_count":
-                            adversarial_check['pattern_count'],
-                            "original_response_preview":
-                            get_payload_preview(encrypted_response, 100)
-                        })
             elif not safety_result['safe']:
                 # PII leak detected in output
                 # Use safe alternative instead of decrypting the unsafe response
@@ -335,19 +294,6 @@ Be friendly and professional, but security comes first."""
                     safety_result)
                 status = "blocked"
                 block_reason = "pii_leak"
-
-                # Log blocked response to LangFuse
-                if self.enable_langfuse and self.langfuse_handler:
-                    self.langfuse_handler.event(
-                        name="pii_leak_blocked",
-                        metadata={
-                            "matched_topic":
-                            safety_result.get('matched_topic'),
-                            "similarity_score":
-                            safety_result.get('similarity_score'),
-                            "original_response_preview":
-                            get_payload_preview(encrypted_response, 100)
-                        })
             else:
                 # Both checks passed - decrypt and send safe response
                 try:
@@ -397,10 +343,7 @@ Be friendly and professional, but security comes first."""
             # Log to shared telemetry for cross-process analytics
             self.telemetry.log_interaction(interaction)
 
-            # Flush LangFuse trace
-            if self.enable_langfuse and self.langfuse_handler:
-                self.langfuse_handler.flush()
-
+            # Note: LangFuse CallbackHandler auto-flushes traces
             return interaction
 
         except Exception as e:
