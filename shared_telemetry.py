@@ -416,7 +416,7 @@ class SharedTelemetry:
         """Get statistics about prompt observer detections."""
         with self._get_connection() as conn:
             cursor = conn.execute("""
-                SELECT 
+                SELECT
                     COUNT(*) as total,
                     SUM(CASE WHEN blocked = 1 THEN 1 ELSE 0 END) as blocked,
                     AVG(risk_score) as avg_risk,
@@ -424,7 +424,7 @@ class SharedTelemetry:
                 FROM prompt_observer_results
             """)
             row = cursor.fetchone()
-            
+
             if row['total'] == 0:
                 return {
                     'total_analyzed': 0,
@@ -433,7 +433,7 @@ class SharedTelemetry:
                     'max_risk_score': 0.0,
                     'flag_counts': {}
                 }
-            
+
             # Get flag counts
             cursor = conn.execute("SELECT flags FROM prompt_observer_results")
             flag_counts = {}
@@ -442,9 +442,9 @@ class SharedTelemetry:
                 for flag_name, flag_value in flags.items():
                     if flag_value:
                         flag_counts[flag_name] = flag_counts.get(flag_name, 0) + 1
-            
+
             cursor = conn.execute("""
-                SELECT 
+                SELECT
                     COUNT(*) as total,
                     SUM(CASE WHEN blocked = 1 THEN 1 ELSE 0 END) as blocked,
                     AVG(risk_score) as avg_risk,
@@ -452,7 +452,7 @@ class SharedTelemetry:
                 FROM prompt_observer_results
             """)
             row = cursor.fetchone()
-            
+
             return {
                 'total_analyzed': row['total'],
                 'blocked_count': row['blocked'],
@@ -460,6 +460,107 @@ class SharedTelemetry:
                 'max_risk_score': row['max_risk'] or 0.0,
                 'flag_counts': flag_counts
             }
+
+    def get_recent_security_events(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Get recent security events (blocked interactions and high-risk prompts) for analysis.
+
+        This is a read-only function for security analysis tools like the Attack Interpreter.
+        It does NOT access raw customer PII, only attack metadata and safety classifications.
+
+        Args:
+            limit: Maximum number of events to return (default: 50)
+
+        Returns:
+            List of security events with metadata, sorted by recency
+        """
+        with self._get_connection() as conn:
+            events = []
+
+            # Get blocked interactions from main table
+            cursor = conn.execute("""
+                SELECT
+                    id,
+                    user_message,
+                    final_response,
+                    status,
+                    safety_result,
+                    adversarial_check,
+                    timestamp,
+                    trace_id
+                FROM interactions
+                WHERE status = 'blocked'
+                ORDER BY id DESC
+                LIMIT ?
+            """, (limit,))
+
+            for row in cursor.fetchall():
+                safety_result = json.loads(row['safety_result']) if row['safety_result'] else {}
+                adversarial_check = json.loads(row['adversarial_check']) if row['adversarial_check'] else {}
+
+                # Extract safety tags from adversarial check and safety result
+                safety_tags = []
+                if adversarial_check.get('is_adversarial'):
+                    safety_tags.append('adversarial_input')
+                    if adversarial_check.get('matched_patterns'):
+                        safety_tags.extend(adversarial_check.get('matched_patterns', [])[:3])  # First 3 patterns
+
+                if safety_result.get('matched_topic'):
+                    safety_tags.append(safety_result['matched_topic'])
+
+                if not safety_result.get('safe', True):
+                    safety_tags.append('pii_leak_detected')
+
+                events.append({
+                    'id': row['id'],
+                    'timestamp': row['timestamp'],
+                    'user_text': row['user_message'],
+                    'agent_text': row['final_response'],  # This is the safe rejection message, not PII
+                    'status': row['status'],
+                    'safety_tags': safety_tags,
+                    'similarity_score': safety_result.get('similarity_score', 0.0),
+                    'source': 'interaction'
+                })
+
+            # Also get high-risk prompts from observer
+            cursor = conn.execute("""
+                SELECT
+                    id,
+                    prompt,
+                    risk_score,
+                    flags,
+                    explanations,
+                    timestamp,
+                    blocked
+                FROM prompt_observer_results
+                WHERE risk_score >= 0.7 OR blocked = 1
+                ORDER BY id DESC
+                LIMIT ?
+            """, (limit,))
+
+            for row in cursor.fetchall():
+                flags = json.loads(row['flags']) if row['flags'] else {}
+                explanations = json.loads(row['explanations']) if row['explanations'] else []
+
+                safety_tags = ['high_risk_prompt']
+                safety_tags.extend([k for k, v in flags.items() if v])
+                safety_tags.extend(explanations[:2])  # First 2 explanations
+
+                events.append({
+                    'id': f"po_{row['id']}",
+                    'timestamp': row['timestamp'],
+                    'user_text': row['prompt'],
+                    'agent_text': 'Blocked by Prompt Observer' if row['blocked'] else None,
+                    'status': 'blocked' if row['blocked'] else 'flagged',
+                    'safety_tags': safety_tags,
+                    'risk_score': row['risk_score'],
+                    'source': 'prompt_observer'
+                })
+
+            # Sort all events by timestamp (most recent first)
+            events.sort(key=lambda x: x['timestamp'], reverse=True)
+
+            return events[:limit]
 
 # Global shared telemetry instance
 _telemetry = None
