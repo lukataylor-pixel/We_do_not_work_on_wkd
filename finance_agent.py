@@ -347,6 +347,10 @@ Be friendly and professional, but security comes first."""
             return interaction
 
         except Exception as e:
+            import traceback
+            print(f"⚠️ ERROR in finance_agent.invoke(): {str(e)}")
+            print(f"Traceback: {traceback.format_exc()}")
+            
             error_interaction = {
                 'user_message': user_message,
                 'agent_original_response': f"Error: {str(e)}",
