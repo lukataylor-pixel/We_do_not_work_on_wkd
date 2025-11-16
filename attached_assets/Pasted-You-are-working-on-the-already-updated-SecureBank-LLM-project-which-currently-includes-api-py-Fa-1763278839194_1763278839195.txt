@@ -1,0 +1,193 @@
+You are working on the already updated SecureBank LLM project, which currently includes:
+api.py – FastAPI backend & LLM orchestration
+safety_classifier.py – observer for LLM outputs (jailbreak / PII / etc.)
+encryption.py – encryption for LLM messages
+shared_telemetry.py – SQLite logging / trace explorer
+unified_dashboard.py – UI
+admin_dashboard.py – admin tooling
+I want you to add a second observer that analyzes user prompts BEFORE they reach the LLM, without changing the existing logic for the current observer and pipelines.
+This second observer should:
+Use a knowledge base (KB) of previously blocked prompts from the trace explorer / telemetry.
+Apply additional detection techniques on the incoming user prompt:
+Homograph attacks
+Contextual embedding similarity to known-bad prompts
+Steganography-like patterns
+Greedy coordinate gradient–style adversarial prompting (iterative, small edits across attempts)
+The goal:
+Add a pre-LLM “prompt observer” that can flag or log suspicious user prompts using these advanced heuristics without breaking or rewriting existing logic. Existing safety classifier for LLM outputs should continue to work as-is.
+High-Level Design
+Create a new module – e.g. prompt_observer.py
+The new observer:
+Runs on raw user prompts, before the LLM is called.
+Reads from a KB of blocked prompts (from shared_telemetry / trace explorer).
+Computes a risk score + flags using:
+Homograph detection,
+Embedding similarity to known-bad prompts,
+Steganography heuristics,
+Greedy coordinate gradient heuristics.
+Returns a structured result, e.g.:
+{
+    "risk_score": float,
+    "flags": {
+        "homograph": bool,
+        "context_similar_to_blocked": bool,
+        "steganography": bool,
+        "greedy_coordinate_gradient": bool,
+    },
+    "explanations": list[str],
+}
+Integration style requirement:
+Do not modify the core logic of safety_classifier.py for LLM outputs.
+Do not remove or restructure existing pipelines; only plug the prompt observer in front of the current flow.
+The existing system behavior should remain unchanged by default.
+Use a config flag such as ENABLE_PROMPT_OBSERVER and ENABLE_PROMPT_BLOCKING so the new observer can be turned on/off without affecting the current behavior.
+1. New Module: prompt_observer.py
+Create prompt_observer.py with:
+A main entry function, e.g.:
+def analyze_user_prompt(prompt: str, session_context: dict | None = None) -> dict:
+    """
+    Analyze an incoming user prompt using:
+      - KB of previously blocked prompts
+      - Homograph detection
+      - Contextual embedding similarity
+      - Steganography heuristics
+      - Greedy coordinate gradient heuristics
+
+    Returns a dict with:
+      - risk_score (0–1)
+      - flags (dict)
+      - explanations (list[str])
+    """
+    ...
+Helper functions for each technique:
+def detect_homograph(prompt: str) -> tuple[bool, str | None]: ...
+def detect_contextual_similarity(prompt: str, kb_embeddings: list) -> tuple[bool, float, str | None]: ...
+def detect_steganography(prompt: str) -> tuple[bool, str | None]: ...
+def detect_greedy_coordinate_gradient(
+    prompt: str, session_context: dict | None
+) -> tuple[bool, str | None]: ...
+1.1 Knowledge Base of Blocked Prompts
+In prompt_observer.py, add a small KB loader that uses shared_telemetry.py or the existing DB schema:
+Query the SQLite DB for prompts that were previously blocked (e.g., rows with a blocked = 1 or classification = 'jailbreak').
+Cache them in memory on first load, with:
+kb_texts: list[str]
+kb_embeddings: list[np.ndarray] or similar.
+If the repo already has embedding utilities (for knowledge base / FAQ), reuse them:
+Use the same embedding model to embed new user prompts and blocked prompts.
+Compute cosine similarity to the blocked prompts.
+If not, stub a small embedding function using any available model, or clearly mark where to plug it in.
+1.2 Homograph Attack Detection
+Use Unicode tools such as unicodedata (and any allowed third-party package if available).
+Heuristics:
+Normalize to NFKC.
+Detect use of confusable homoglyphs (Latin vs Cyrillic look-alikes, mixed scripts).
+Flag if:
+There are multiple scripts mixed (Latin + Cyrillic + Greek).
+High ratio of non-ASCII characters that look visually similar to ASCII.
+Return:
+(flag: bool, explanation: str | None)
+1.3 Contextual Embedding Detection
+For the current prompt:
+Compute its embedding with the same pipeline used for KB / FAQ (or a dedicated embedding module).
+Compare to embeddings of previously blocked prompts.
+If max cosine similarity > threshold (e.g. 0.8–0.9), set context_similar_to_blocked = True.
+Include the closest KB example in the explanation.
+1.4 Steganography Heuristics
+Heuristics for suspicious encodings:
+Look for:
+Very long sequences of characters with low semantic density, e.g.:
+High fraction of digits / punctuation / mixed-case “noise”.
+Long base64-like sequences.
+Repeated patterns of small substrings (e.g. abcabcabc...).
+Extremely long prompts that are mostly non-dictionary tokens.
+Implement simple metrics:
+Character class ratios (letters/digits/punct/space).
+Shannon entropy of characters.
+“Weirdness” score using dictionary word coverage.
+If above/below certain thresholds → steganography = True.
+1.5 Greedy Coordinate Gradient–Style Detection
+This is about adversarial prompt refinement: a user repeatedly tweaks a prompt by small token changes to get around defenses.
+Use session_context to access:
+The last N user prompts in this session.
+Compute:
+Similarity between the current prompt and recent prompts.
+If:
+High similarity but with small edits each step, and
+Prompts are targeting jailbreak-ish behavior (optional: reuse blocked KB / keyword heuristics),
+Then set greedy_coordinate_gradient = True.
+Implementation idea:
+For each previous prompt in the session:
+Compute token-level edit distance (Levenshtein) or cosine similarity of embeddings.
+If you see a pattern like:
+Several prompts in a row with similarity > 0.9 (or small edit distance),
+And past attempts already failed / were blocked,
+Flag this as greedy gradient-like probing.
+2. Integration into api.py (without changing existing logic)
+In api.py:
+Add configuration flags (e.g. via environment variables or a config section):
+ENABLE_PROMPT_OBSERVER = True
+ENABLE_PROMPT_BLOCKING = False  # default to False to preserve current behavior
+Identify the main entry point where:
+A user’s raw text prompt is first received and parsed.
+Before any LLM call or encryption of that input.
+Integrate the new observer:
+from prompt_observer import analyze_user_prompt
+
+def handle_user_message(user_message: str, session_state: dict, ...):
+    # Existing logic...
+
+    if ENABLE_PROMPT_OBSERVER:
+        observer_result = analyze_user_prompt(user_message, session_context=session_state)
+
+        # Log the observer's findings
+        # (Use shared_telemetry or your existing logging infra)
+        log_prompt_observer_result(observer_result, session_state, user_message)
+
+        if ENABLE_PROMPT_BLOCKING and observer_result["risk_score"] >= 0.8:
+            # High-risk prompt: optionally block BEFORE LLM
+            return {
+                "message": "Your request could not be processed due to security concerns.",
+                "blocked_by": "prompt_observer",
+            }
+
+    # Existing flow continues unchanged: encryption, LLM call, output classifier, etc.
+    ...
+Important:
+Do not remove existing classifier calls or change their behavior.
+Only add this pre-LLM hook; the rest of the logic should run exactly as before when ENABLE_PROMPT_BLOCKING = False.
+Add a small helper in api.py or shared_telemetry.py to log the observer results (e.g. risk score & flags) to the database for future analysis.
+3. Minimal Changes to shared_telemetry.py
+Add functions to:
+Fetch previously blocked prompts as the KB:
+def get_blocked_prompts(limit: int = 1000) -> list[dict]:
+    # returns [{"prompt": "...", "reason": "...", "timestamp": ...}, ...]
+Log prompt observer decisions:
+def log_prompt_observer_result(session_id: str, prompt: str, result: dict) -> None:
+    # store risk_score, flags, timestamp, etc.
+Do not change existing tables’ semantics; you can:
+Add new columns/tables if needed, or
+Reuse an existing “events” table with a new event type.
+4. Keep Encryption Logic Untouched
+The prompt observer should run where raw user text is already available (before encrypting, or right after decrypting, depending on your design).
+Do not change encryption.py or its API.
+Do not modify how the existing safety classifier sees decrypted LLM responses.
+5. Testing
+Add or extend tests to verify:
+No-regression behavior:
+With ENABLE_PROMPT_OBSERVER = True and ENABLE_PROMPT_BLOCKING = False, the system behaves exactly as before (just with extra logs).
+KB similarity:
+If a user sends a prompt very similar to a known blocked prompt, the observer:
+Sets context_similar_to_blocked = True,
+Raises risk_score.
+Homograph detection:
+A prompt that uses Cyrillic homoglyphs for English letters gets homograph = True.
+Steganography heuristic:
+A prompt with long base64-like gibberish yields steganography = True.
+Greedy coordinate gradient pattern:
+Multiple near-duplicate prompts within the same session are flagged as greedy_coordinate_gradient = True.
+Please:
+Create prompt_observer.py implementing the described structure.
+Wire it into api.py using a pre-LLM hook with config flags.
+Add helper functions in shared_telemetry.py for loading blocked prompts and logging observer results.
+Ensure existing safety classifier and encryption logic remains unchanged and fully functional.
+You can implement all of this as an additive layer, with zero breaking changes to the current logic by default.

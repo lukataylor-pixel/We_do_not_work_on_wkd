@@ -5,11 +5,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict, Any
 import uvicorn
 import os
+import time
 
 from finance_agent import FinanceAgent
+from shared_telemetry import get_telemetry
+from prompt_observer import analyze_user_prompt
+
+# Configuration flags for prompt observer
+ENABLE_PROMPT_OBSERVER = os.getenv("ENABLE_PROMPT_OBSERVER", "true").lower() == "true"
+ENABLE_PROMPT_BLOCKING = os.getenv("ENABLE_PROMPT_BLOCKING", "false").lower() == "true"
+PROMPT_BLOCK_THRESHOLD = float(os.getenv("PROMPT_BLOCK_THRESHOLD", "0.8"))
+
+# Initialize telemetry
+telemetry = get_telemetry()
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -42,6 +53,7 @@ class ChatResponse(BaseModel):
     processing_time: float
     trace_id: Optional[str] = None
     method: str
+    prompt_observer_result: Optional[Dict[str, Any]] = None
 
 class HealthResponse(BaseModel):
     status: str
@@ -79,6 +91,11 @@ async def chat(request: ChatRequest):
     """
     Process a chat message through the finance agent with safety checking.
     
+    This includes:
+    1. Pre-LLM prompt observer analysis (if enabled)
+    2. Agent processing with LLM
+    3. Post-LLM safety classification (existing)
+    
     Args:
         request: Chat request with message and optional trace_id
         
@@ -86,16 +103,64 @@ async def chat(request: ChatRequest):
         Chat response with agent's reply and safety metadata
     """
     try:
-        # Invoke agent with optional trace ID
-        result = agent.invoke(request.message, trace_id=request.trace_id)
+        start_time = time.time()
+        observer_result = None
+        session_id = request.trace_id or f"session_{int(time.time())}"
         
+        # PRE-LLM HOOK: Prompt Observer Analysis
+        if ENABLE_PROMPT_OBSERVER:
+            # Load blocked prompts KB for analysis
+            blocked_prompts_kb = telemetry.get_blocked_prompts(limit=500)
+            
+            # Analyze the user prompt BEFORE it reaches the LLM
+            observer_result = analyze_user_prompt(
+                prompt=request.message,
+                session_context=None,  # Could be enhanced with session tracking
+                blocked_prompts_kb=blocked_prompts_kb
+            )
+            
+            # Log the observer analysis
+            telemetry.log_prompt_observer_result(
+                session_id=session_id,
+                prompt=request.message,
+                result=observer_result,
+                blocked=False  # Will update if blocked
+            )
+            
+            # Optional: Block high-risk prompts before LLM
+            if ENABLE_PROMPT_BLOCKING and observer_result['risk_score'] >= PROMPT_BLOCK_THRESHOLD:
+                # Update log to mark as blocked
+                telemetry.log_prompt_observer_result(
+                    session_id=session_id,
+                    prompt=request.message,
+                    result=observer_result,
+                    blocked=True
+                )
+                
+                # Return blocked response WITHOUT calling LLM
+                explanations = observer_result.get('explanations', ['High-risk prompt detected'])
+                return ChatResponse(
+                    response=f"Your request could not be processed due to security concerns. {explanations[0] if explanations else ''}",
+                    status="blocked",
+                    similarity_score=0.0,
+                    processing_time=time.time() - start_time,
+                    trace_id=session_id,
+                    method="prompt_observer_block",
+                    prompt_observer_result=observer_result
+                )
+        
+        # Existing flow: Invoke agent with optional trace ID
+        result = agent.invoke(request.message, trace_id=session_id)
+        
+        # Include observer result in response
         return ChatResponse(
             response=result['final_response'],
             status=result['status'],
             similarity_score=result['safety_result']['similarity_score'],
             processing_time=result['processing_time'],
             trace_id=result.get('trace_id'),
-            method=result['safety_result'].get('method', 'unknown')
+            method=result['safety_result'].get('method', 'unknown'),
+            prompt_observer_result=observer_result
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Agent error: {str(e)}")
