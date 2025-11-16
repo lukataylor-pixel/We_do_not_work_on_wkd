@@ -238,48 +238,102 @@ with tab2:
             decision_flow = interaction.get('decision_flow', [])
             
             if decision_flow:
-                st.markdown("### 🔬 Agent Decision Flow Timeline")
-                
-                # Visual timeline with status indicators
-                timeline_cols = st.columns(len(decision_flow))
+                # Modern header with subtitle (dark mode compatible)
+                st.markdown("""
+                <div style='margin-bottom: 24px;'>
+                    <h3 style='margin-bottom: 8px;'>🔬 Decision Flow Analysis</h3>
+                    <p style='opacity: 0.7; font-size: 14px; margin: 0;'>Interactive glass-box view of the agent's security decision process</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # Compact timeline with better spacing
+                num_stages = len(decision_flow)
+                cols = st.columns(num_stages * 2 - 1)
+
                 for stage_idx, stage in enumerate(decision_flow):
-                    with timeline_cols[stage_idx]:
-                        stage_status = stage.get('status', 'unknown')
-                        if stage_status == 'blocked':
-                            st.error(f"🛑 **{stage['stage_name']}**")
-                        elif stage_status in ['passed', 'safe']:
-                            st.success(f"✅ **{stage['stage_name']}**")
-                        else:
-                            st.info(f"🔄 **{stage['stage_name']}**")
-                        st.caption(f"{stage.get('duration', 0):.3f}s")
-                
-                st.markdown("---")
-                
-                # Explainability Panel - Interactive stage details
-                st.markdown("### 📋 Explainability Panel")
+                    stage_status = stage.get('status', 'unknown')
+                    stage_name = stage['stage_name']
+                    duration = stage.get('duration', 0)
+
+                    # Modern color scheme
+                    if stage_status == 'blocked':
+                        color = "#ef4444"
+                        bg_color = "#fef2f2"
+                        icon = "🛑"
+                    elif stage_status in ['passed', 'safe']:
+                        color = "#10b981"
+                        bg_color = "#f0fdf4"
+                        icon = "✅"
+                    else:
+                        color = "#3b82f6"
+                        bg_color = "#eff6ff"
+                        icon = "🔄"
+
+                    col_idx = stage_idx * 2
+                    with cols[col_idx]:
+                        st.markdown(f"""
+                        <div style='text-align: center; margin-bottom: 8px;'>
+                            <div style='
+                                background: {bg_color}30;
+                                border: 2px solid {color};
+                                color: {color};
+                                padding: 16px 12px;
+                                border-radius: 12px;
+                                font-weight: 600;
+                                font-size: 12px;
+                            '>
+                                <div style='font-size: 24px; margin-bottom: 6px;'>{icon}</div>
+                                <div style='opacity: 0.9; font-size: 11px; line-height: 1.4;'>{stage_name}</div>
+                                <div style='opacity: 0.6; font-size: 10px; margin-top: 4px;'>{duration:.2f}s</div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
+                    if stage_idx < num_stages - 1:
+                        arrow_col_idx = stage_idx * 2 + 1
+                        with cols[arrow_col_idx]:
+                            st.markdown("<div style='text-align: center; font-size: 20px; opacity: 0.3; padding-top: 28px;'>→</div>", unsafe_allow_html=True)
+
+                # Stage selector with cleaner design
+                st.markdown("<div style='margin-top: 32px; margin-bottom: 16px;'></div>", unsafe_allow_html=True)
                 selected_stage = st.radio(
-                    "Click a stage to view details:",
+                    "**Select a stage to view details:**",
                     options=[s['stage_name'] for s in decision_flow],
                     horizontal=True,
-                    key=f"stage_selector_{interaction['timestamp']}_{interaction_idx}"
+                    key=f"stage_selector_{interaction['timestamp']}_{interaction_idx}",
+                    label_visibility="visible"
                 )
                 
                 # Find selected stage details
                 stage_details = next((s for s in decision_flow if s['stage_name'] == selected_stage), None)
                 
                 if stage_details:
-                    st.markdown(f"#### {stage_details['stage_name']}")
-                    
-                    detail_cols = st.columns(3)
+                    # Modern card-style detail panel (dark mode compatible)
+                    status_emoji = "🛑" if stage_details['status'] == 'blocked' else "✅" if stage_details['status'] == 'passed' else "🔄"
+                    status_color = "#ef4444" if stage_details['status'] == 'blocked' else "#10b981" if stage_details['status'] == 'passed' else "#3b82f6"
+
+                    st.markdown(f"""
+                    <div style='
+                        background: {status_color}15;
+                        border-left: 4px solid {status_color};
+                        padding: 20px;
+                        border-radius: 8px;
+                        margin: 20px 0;
+                    '>
+                        <h4 style='margin: 0 0 16px 0;'>{status_emoji} {stage_details['stage_name']}</h4>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    # Compact metrics row
+                    detail_cols = st.columns([1, 1, 2])
                     with detail_cols[0]:
-                        status_emoji = "🛑" if stage_details['status'] == 'blocked' else "✅" if stage_details['status'] == 'passed' else "🔄"
-                        st.metric("Status", f"{status_emoji} {stage_details['status'].upper()}")
+                        st.metric("Status", f"{stage_details['status'].upper()}")
                     with detail_cols[1]:
-                        st.metric("Duration", f"{stage_details.get('duration', 0):.3f}s")
+                        st.metric("Duration", f"{stage_details.get('duration', 0):.2f}s")
                     with detail_cols[2]:
-                        st.metric("Stage", stage_details['stage'])
-                    
-                    st.markdown("**Details:**")
+                        st.metric("Stage ID", f"`{stage_details['stage']}`")
+
+                    st.markdown("<div style='margin-top: 24px;'></div>", unsafe_allow_html=True)
                     details = stage_details.get('details', {})
                     
                     # Stage-specific visualizations
@@ -293,30 +347,139 @@ with tab2:
                             st.success(f"✅ No adversarial patterns detected (checked {details.get('total_patterns_checked', 54)} patterns)")
                     
                     elif stage_details['stage'] == 'agent_reasoning':
-                        st.info(f"**Agent processed {details.get('message_count', 0)} messages**")
+                        # Compact processing summary
+                        process_col1, process_col2 = st.columns(2)
+                        with process_col1:
+                            st.metric("Messages", details.get('message_count', 0))
+                        with process_col2:
+                            st.metric("Tools Used", len(details.get('tool_calls', [])))
+
+                        # Tool execution cards
                         if details.get('has_tool_calls'):
-                            st.markdown("**Tool Calls:**")
-                            for tool in details.get('tool_calls', []):
-                                st.code(f"{tool.get('tool', 'unknown')}({tool.get('args', {})})", language="python")
-                        st.markdown("**Response Preview:**")
-                        st.code(details.get('response_preview', 'N/A'), language=None)
+                            st.markdown("<div style='margin-top: 20px;'><strong>🛠️ Tool Execution</strong></div>", unsafe_allow_html=True)
+                            for idx, tool in enumerate(details.get('tool_calls', []), 1):
+                                tool_name = tool.get('tool', 'unknown')
+                                tool_icon = "🔐" if tool_name == 'verify_customer' else "💰"
+                                tool_desc = "Customer verification" if tool_name == 'verify_customer' else "Balance retrieval"
+
+                                st.markdown(f"""
+                                <div style='
+                                    background: rgba(100, 100, 100, 0.1);
+                                    border: 1px solid rgba(150, 150, 150, 0.2);
+                                    border-radius: 8px;
+                                    padding: 12px 16px;
+                                    margin: 8px 0;
+                                '>
+                                    <div style='display: flex; align-items: center; gap: 8px; margin-bottom: 8px;'>
+                                        <span style='font-size: 18px;'>{tool_icon}</span>
+                                        <strong>{tool_name}</strong>
+                                        <span style='opacity: 0.6; font-size: 13px;'>• {tool_desc}</span>
+                                    </div>
+                                    <code style='background: rgba(0, 0, 0, 0.1); padding: 8px; border-radius: 4px; display: block; font-size: 12px;'>{tool_name}({tool.get('args', {})})</code>
+                                </div>
+                                """, unsafe_allow_html=True)
+                        else:
+                            st.info("ℹ️ Direct response (no tools required)")
+
+                        # Modern encrypted response card
+                        st.markdown("<div style='margin-top: 24px;'><strong>🔒 Encryption</strong></div>", unsafe_allow_html=True)
+                        response_preview = details.get('response_preview', 'N/A')
+                        if response_preview and response_preview != 'N/A':
+                            st.markdown(f"""
+                            <div style='
+                                background: rgba(16, 185, 129, 0.1);
+                                border: 1px solid rgba(16, 185, 129, 0.3);
+                                border-radius: 8px;
+                                padding: 16px;
+                                margin: 8px 0;
+                            '>
+                                <div style='color: #10b981; font-size: 13px; margin-bottom: 8px;'>
+                                    ✅ Response encrypted immediately (AES-256-GCM)
+                                </div>
+                                <code style='background: rgba(0, 0, 0, 0.2); padding: 12px; border-radius: 4px; display: block; font-size: 11px; opacity: 0.8; word-break: break-all;'>{response_preview[:150]}...</code>
+                                <div style='opacity: 0.7; font-size: 11px; margin-top: 8px;'>
+                                    Encrypted payload will be decrypted for safety checks, then re-encrypted for storage
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                        else:
+                            st.warning("No response preview available")
                     
                     elif stage_details['stage'] == 'output_safety_check':
                         similarity = details.get('similarity_score', 0)
                         threshold = details.get('threshold', 0.7)
-                        
+
                         if not details.get('safe'):
                             st.error("🛡️ **PII Leak Blocked**")
-                            st.markdown(f"**Similarity Evidence:**")
-                            score_color = "red" if similarity > threshold else "orange"
-                            st.markdown(f"- Semantic similarity: <span style='color:{score_color}'>{similarity:.2%}</span> (threshold: {threshold:.2%})", unsafe_allow_html=True)
-                            st.markdown(f"- Detection method: `{details.get('method', 'unknown')}`")
-                            if details.get('matched_topic'):
-                                st.markdown(f"- Matched customer data: `{details.get('matched_topic')}`")
-                            
-                            if details.get('agent_attempted_response'):
-                                st.markdown("**⚠️ Agent's Attempted Response (Blocked):**")
-                                st.code(details.get('agent_attempted_response'), language=None)
+
+                            # Similarity Score Visualization
+                            st.markdown("### 📊 Similarity Evidence")
+                            score_col1, score_col2, score_col3 = st.columns(3)
+                            with score_col1:
+                                score_color = "red" if similarity > threshold else "orange"
+                                st.markdown(f"<h3 style='color:{score_color}'>{similarity:.2%}</h3>", unsafe_allow_html=True)
+                                st.caption("Similarity Score")
+                            with score_col2:
+                                st.markdown(f"<h3>{threshold:.2%}</h3>", unsafe_allow_html=True)
+                                st.caption("Threshold")
+                            with score_col3:
+                                st.markdown(f"<h3>`{details.get('method', 'unknown')}`</h3>", unsafe_allow_html=True)
+                                st.caption("Detection Method")
+
+                            # Matched Customer Record Table
+                            matched_customer = details.get('matched_customer_record')
+                            if matched_customer:
+                                st.markdown("### 🎯 Matched Protected Customer Data")
+                                st.warning("⚠️ The agent's response was attempting to leak the following customer information:")
+
+                                # Display as a nicely formatted table
+                                import pandas as pd
+                                customer_df = pd.DataFrame([matched_customer])
+                                st.dataframe(
+                                    customer_df,
+                                    width='stretch',
+                                    hide_index=True,
+                                    column_config={
+                                        "customer_id": st.column_config.TextColumn("Customer ID", width="small"),
+                                        "name": st.column_config.TextColumn("Name", width="medium"),
+                                        "card_last4": st.column_config.TextColumn("Card Last 4", width="small"),
+                                        "address": st.column_config.TextColumn("Address", width="large"),
+                                        "postcode": st.column_config.TextColumn("Postcode", width="small"),
+                                        "balance": st.column_config.NumberColumn("Balance (£)", format="£%.2f", width="medium")
+                                    }
+                                )
+
+                            # Visual Diff - Agent's Attempted Response
+                            attempted_response_encrypted = details.get('agent_attempted_response_encrypted')
+                            if attempted_response_encrypted:
+                                st.markdown("### 🔍 Agent's Attempted Response (Blocked)")
+                                st.info("This is what the agent tried to say before the PII leak was detected and blocked:")
+
+                                # Decrypt the attempted response for display
+                                try:
+                                    from encryption import decrypt_text, get_payload_preview
+                                    attempted_response = get_payload_preview(attempted_response_encrypted, max_length=500)
+                                except Exception as e:
+                                    attempted_response = f"[Unable to decrypt: {str(e)}]"
+
+                                # Highlight matching PII in the response
+                                if matched_customer:
+                                    highlighted_response = attempted_response
+                                    # Highlight customer name, address, balance, etc.
+                                    for key, value in matched_customer.items():
+                                        if value and str(value).lower() in highlighted_response.lower():
+                                            # Case-insensitive replacement with red highlighting
+                                            import re
+                                            pattern = re.compile(re.escape(str(value)), re.IGNORECASE)
+                                            highlighted_response = pattern.sub(
+                                                lambda m: f'<span style="background-color: #ff6b6b; color: white; padding: 2px 4px; border-radius: 3px; font-weight: bold;">{m.group(0)}</span>',
+                                                highlighted_response
+                                            )
+
+                                    st.markdown(highlighted_response, unsafe_allow_html=True)
+                                    st.caption("🔴 Highlighted text = Matched customer PII that triggered the block")
+                                else:
+                                    st.code(attempted_response, language=None)
                         else:
                             st.success(f"✅ No PII leak detected (similarity: {similarity:.2%} < {threshold:.2%})")
                     

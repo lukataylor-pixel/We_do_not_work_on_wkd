@@ -49,7 +49,7 @@ class SafetyClassifier:
             "forget everything",
             "forget all instructions",
             "override instructions",
-            
+
             # System/role manipulation
             "system override",
             "admin mode",
@@ -61,7 +61,7 @@ class SafetyClassifier:
             "pretend that",
             "assume you are",
             "roleplay as",
-            
+
             # Data extraction attempts
             "list all customers",
             "list all",
@@ -73,11 +73,12 @@ class SafetyClassifier:
             "all customer",
             "every customer",
             "dump database",
+            "dump the",
             "print all",
             "give me everyone",
             "display all",
             "reveal all",
-            
+
             # Direct PII requests (asking for specific customer info)
             "provide me with",
             "can you provide",
@@ -95,37 +96,134 @@ class SafetyClassifier:
             "'s account",
             "'s information",
             "'s details",
+            "'s home address",
+            "'s account balance",
             "look up",
             "search for",
-            
+            "customer id",
+            "customer details",
+
             # Security bypass
             "bypass security",
             "bypass verification",
+            "bypass the",
             "skip verification",
-            "without verification"
+            "skip the",
+            "without verification",
+
+            # Jailbreak / Hypotheticals
+            "hypothetical",
+            "in a hypothetical",
+            "imagine if",
+            "let's pretend",
+            "what if",
+
+            # Social engineering
+            "i'm a new employee",
+            "i'm an employee",
+            "i work here",
+            "for training",
+            "training purposes"
         ]
     
+    def _normalize_text(self, text: str) -> str:
+        """
+        Normalize text to handle obfuscation attempts.
+
+        Handles:
+        - Leetspeak (1 -> i, 3 -> e, 4 -> a, 5 -> s, 0 -> o, 7 -> t)
+        - Unicode tricks (Cyrillic characters that look like Latin)
+        - Extra spaces and punctuation
+        """
+        import unicodedata
+
+        # Normalize Unicode (convert Cyrillic to Latin equivalents)
+        # NFKD decomposition helps with some Unicode tricks
+        normalized = unicodedata.normalize('NFKD', text)
+
+        # Manual Cyrillic -> Latin mapping for common lookalikes
+        cyrillic_map = {
+            'а': 'a', 'е': 'e', 'о': 'o', 'р': 'p', 'с': 'c',
+            'у': 'y', 'х': 'x', 'і': 'i', 'ѕ': 's', 'һ': 'h',
+            'А': 'A', 'В': 'B', 'Е': 'E', 'К': 'K', 'М': 'M',
+            'Н': 'H', 'О': 'O', 'Р': 'P', 'С': 'C', 'Т': 'T',
+            'Х': 'X', 'Ѕ': 'S', 'І': 'I'
+        }
+
+        for cyrillic, latin in cyrillic_map.items():
+            normalized = normalized.replace(cyrillic, latin)
+
+        # Leetspeak normalization
+        leetspeak_map = {
+            '0': 'o', '1': 'i', '3': 'e', '4': 'a',
+            '5': 's', '7': 't', '8': 'b', '9': 'g'
+        }
+
+        for leet, normal in leetspeak_map.items():
+            normalized = normalized.replace(leet, normal)
+
+        return normalized.lower()
+
+    def _check_customer_names(self, user_message: str) -> List[str]:
+        """
+        Check if user message contains customer names from the knowledge base.
+
+        Returns:
+            List of matched customer names
+        """
+        message_lower = user_message.lower()
+        matched_names = []
+
+        if self.sensitive_kb is not None:
+            for _, row in self.sensitive_kb.iterrows():
+                customer_name = str(row['name']).lower()
+                # Check for full name or last name
+                name_parts = customer_name.split()
+
+                if customer_name in message_lower:
+                    matched_names.append(row['name'])
+                elif len(name_parts) >= 2 and name_parts[-1] in message_lower:
+                    # Check if last name appears (e.g., "Johnson")
+                    matched_names.append(row['name'])
+
+        return matched_names
+
     def check_adversarial_input(self, user_message: str) -> Dict[str, Any]:
         """
         Check if user input contains known adversarial patterns.
-        
+
+        Enhanced with:
+        - Obfuscation detection (leetspeak, unicode tricks)
+        - Customer name detection
+
         Args:
             user_message: The user's input message
-            
+
         Returns:
             Dictionary with adversarial detection results
         """
         message_lower = user_message.lower()
+        normalized_message = self._normalize_text(user_message)
         matched_patterns = []
-        
+
+        # Check patterns against both original and normalized text
         for pattern in self.adversarial_patterns:
-            if pattern in message_lower:
+            if pattern in message_lower or pattern in normalized_message:
                 matched_patterns.append(pattern)
-        
+
+        # Check for customer names in the message
+        matched_names = self._check_customer_names(user_message)
+
+        # If customer names are mentioned, it's likely a PII request
+        if matched_names:
+            matched_patterns.extend([f"customer_name:{name}" for name in matched_names])
+
         return {
             'is_adversarial': len(matched_patterns) > 0,
             'matched_patterns': matched_patterns,
-            'pattern_count': len(matched_patterns)
+            'pattern_count': len(matched_patterns),
+            'matched_customer_names': matched_names,
+            'obfuscation_detected': normalized_message != message_lower
         }
     
     def _load_knowledge_base(self):
@@ -228,11 +326,25 @@ class SafetyClassifier:
                     max_score = score
                     matched_idx = i
 
+        # Get matched customer record for detailed explainability
+        matched_customer = None
+        if max_score >= self.threshold:
+            customer_row = self.sensitive_kb.iloc[matched_idx]
+            matched_customer = {
+                'customer_id': customer_row['customer_id'],
+                'name': customer_row['name'],
+                'card_last4': customer_row['card_last4'],
+                'address': customer_row['address'],
+                'postcode': customer_row['postcode'],
+                'balance': customer_row['balance']
+            }
+
         return {
             'safe': max_score < self.threshold,
             'similarity_score': float(max_score),
             'matched_topic': f"customer_pii_{self.sensitive_kb.iloc[matched_idx]['customer_id']}" if max_score >= self.threshold else None,
             'matched_text': f"{self.sensitive_kb.iloc[matched_idx]['name']} - {self.sensitive_kb.iloc[matched_idx]['address']}" if max_score >= self.threshold else None,
+            'matched_customer_record': matched_customer,
             'method': 'keyword_fallback'
         }
 
@@ -309,6 +421,19 @@ class SafetyClassifier:
 
             is_safe = max_similarity < self.threshold
 
+            # Get matched customer record for detailed explainability
+            matched_customer = None
+            if not is_safe:
+                customer_row = self.sensitive_kb.iloc[matched_idx]
+                matched_customer = {
+                    'customer_id': customer_row['customer_id'],
+                    'name': customer_row['name'],
+                    'card_last4': customer_row['card_last4'],
+                    'address': customer_row['address'],
+                    'postcode': customer_row['postcode'],
+                    'balance': customer_row['balance']
+                }
+
             return {
                 'safe':
                 is_safe,
@@ -320,6 +445,7 @@ class SafetyClassifier:
                 'matched_text':
                 f"{self.sensitive_kb.iloc[matched_idx]['name']} - {self.sensitive_kb.iloc[matched_idx]['address']}"
                 if not is_safe else None,
+                'matched_customer_record': matched_customer,
                 'method':
                 'embedding_similarity'
             }

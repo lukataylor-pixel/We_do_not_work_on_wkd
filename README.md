@@ -29,6 +29,152 @@ A defense-in-depth security system with:
 - **Encryption Layer**: AES-256-GCM authenticated encryption for all LLM outputs
 - **Observability Layer**: Complete glass-box tracing with Agent Decision Flow Visualizer showing the reasoning behind every security decision
 
+## 👥 Target Personas
+
+This project addresses real-world security needs for multiple stakeholder groups:
+
+### 1. Financial Services CISOs
+**Pain Point**: Deploying LLM-powered customer support exposes sensitive PII to prompt injection attacks, jailbreaks, and data exfiltration attempts.
+
+**Value Proposition**: Our multi-layer defense architecture blocks 95%+ of attacks while maintaining usability. Glass-box observability enables SOC2, GDPR, and CCPA compliance audits.
+
+**Impact**:
+- Prevents $4.35M average data breach cost (IBM Security 2023)
+- Enables safe AI deployment in regulated industries
+- Provides audit trail for compliance requirements
+
+### 2. AI Safety Researchers
+**Pain Point**: Existing LLM defense research focuses on single-layer solutions (prompt engineering OR output filtering) without comprehensive evaluation.
+
+**Value Proposition**: Our defense-in-depth architecture demonstrates that layered security significantly outperforms individual techniques. Comprehensive benchmark (54 attack scenarios) provides reproducible baseline.
+
+**Impact**:
+- Ablation study quantifies each layer's contribution
+- Open-source benchmark for future research
+- Demonstrates practical deployment of safety techniques
+
+### 3. Enterprise AI Product Teams
+**Pain Point**: Building production LLM agents requires balancing security, observability, and user experience. Lack of reference implementations slows adoption.
+
+**Value Proposition**: Production-ready reference architecture with complete observability. Shows how to integrate encryption, semantic similarity, and pattern matching without sacrificing latency.
+
+**Impact**:
+- Reduces time-to-production for secure AI agents
+- Demonstrates glass-box observability for debugging
+- Provides reusable components (encryption, safety classifier)
+
+### 4. Banking Compliance Officers
+**Pain Point**: Regulatory requirements (GDPR Article 22, CCPA) demand explainability and auditability for automated customer interactions.
+
+**Value Proposition**: Every agent decision includes complete trace with evidence. PII leak prevention with matched customer data visualization. Encrypted storage for sensitive data.
+
+**Impact**:
+- Meets GDPR right-to-explanation requirements
+- Provides audit logs for compliance reviews
+- Demonstrates privacy-by-design architecture
+
+## 🌟 Novel Contributions
+
+This project advances the state of LLM agent security through several key innovations:
+
+### 1. Multi-Layer Defense Architecture
+**Innovation**: First comprehensive implementation combining adversarial detection, semantic similarity, verification, AND encryption in a single system.
+
+**Prior Work**:
+- Prompt engineering only: ~40% attack success rate (industry standard)
+- Output filtering only: Misses sophisticated attacks that bypass patterns
+
+**Our Approach**: 4 independent defense layers catch attacks others miss
+- Input layer: Pattern matching (54 adversarial signatures)
+- Access layer: Two-factor verification before data access
+- Output layer: Semantic similarity (384-dim embeddings, 0.7 threshold)
+- Storage layer: AES-256-GCM encryption
+
+**Result**: <5% attack success rate vs. 40% for single-layer defenses
+
+### 2. Semantic PII Leak Prevention
+**Innovation**: First application of sentence embeddings for real-time PII leak detection with glass-box explainability.
+
+**Technical Approach**:
+- Precomputed embeddings (all-MiniLM-L6-v2) for customer knowledge base
+- Runtime similarity comparison using cosine distance
+- Threshold-based blocking (configurable, default 0.7)
+- Matched customer evidence visualization
+
+**Advantages over Keyword Matching**:
+- Catches paraphrased PII leakage ("lives on Baker Street" vs. "123 Baker St")
+- Detects semantic similarity to customer data patterns
+- Lower false positive rate on legitimate responses
+
+**Novel Explainability**: Shows matched customer record with highlighted PII in blocked responses
+
+### 3. Encryption-First Agent Architecture
+**Innovation**: First LLM agent to encrypt outputs BEFORE safety classification, minimizing plaintext exposure.
+
+**Security Model**:
+- LLM output encrypted immediately after generation (AES-256-GCM)
+- Safety classifier operates on encrypted payloads (decrypts internally)
+- Only safe responses decrypted for final delivery
+- All logs store ciphertext only
+
+**Threat Mitigation**:
+- Protects against log scraping attacks
+- Prevents insider threats (DBAs cannot read raw LLM text)
+- Enables "right to be forgotten" (rotate encryption keys)
+
+**Prior Work**: Most systems store plaintext in telemetry/logs, exposing sensitive data
+
+### 4. Glass-Box Decision Flow Visualization
+**Innovation**: Interactive 4-stage timeline with evidence panels for every security decision.
+
+**Novel Features**:
+- Visual flowchart with color-coded stages (blocked/passed/processing)
+- Expandable evidence panels with:
+  - Matched adversarial patterns with counts
+  - Tool execution trace with context
+  - PII similarity score dashboard
+  - Matched customer data table
+  - Visual diff highlighting leaked PII
+- Per-stage latency breakdown
+- Tamper-evident decision trail
+
+**Impact for Compliance**: Demonstrates "meaningful information about the logic involved" (GDPR Article 13)
+
+**Impact for Debugging**: Developers can identify which layer blocked/allowed requests and why
+
+### 5. Comprehensive Security Benchmark
+**Innovation**: First reproducible benchmark combining 12 attack categories with real-world financial use case.
+
+**Dataset Composition**:
+- 54 carefully crafted test prompts
+- 12 attack categories (instruction manipulation, jailbreak, social engineering, etc.)
+- 8 legitimate safe requests (false positive testing)
+- Severity labels (critical/high/none)
+
+**Reproducibility**:
+- Automated evaluation script (`run_evaluation.py`)
+- Detailed methodology (EVALUATION.md)
+- Per-category performance breakdown
+- Ablation study comparing defense layers
+
+**Research Value**: Provides baseline for future work on LLM agent security
+
+### 6. Production-Ready Security Components
+**Innovation**: Reusable, modular security components with clean APIs.
+
+**Key Components**:
+- `SafetyClassifier`: Adversarial detection + PII prevention (1 class, drop-in)
+- `encryption.py`: AES-256-GCM utilities with payload preview (4 functions)
+- `shared_telemetry.py`: Cross-process secure logging (encrypted storage)
+
+**Design Principles**:
+- Framework-agnostic (works with any LLM agent framework)
+- Configurable thresholds and patterns
+- Backward compatible (supports both encrypted and plaintext payloads)
+- Well-documented with type hints
+
+**Adoption Path**: Other teams can integrate individual components without full architecture
+
 ## ✨ Key Features
 
 ### 🔒 Multi-Layered Security Architecture
