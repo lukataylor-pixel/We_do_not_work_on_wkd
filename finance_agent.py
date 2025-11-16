@@ -268,9 +268,10 @@ Be friendly and professional, but security comes first."""
 
             if not self.disable_safety_checks:
                 # Pass encrypted payload to safety classifier (it will decrypt internally)
+                # Also pass verified customer ID so they can see their own data
                 # Note: LangFuse CallbackHandler automatically traces all operations
                 safety_result = self.safety_classifier.check_safety(
-                    encrypted_response)
+                    encrypted_response, verified_customer_id=self.verified_customer_id)
 
                 decision_flow.append({
                     'stage':

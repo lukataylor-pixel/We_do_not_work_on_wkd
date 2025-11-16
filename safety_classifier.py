@@ -298,10 +298,14 @@ class SafetyClassifier:
             print(f"Error encoding with sentence-transformers: {e}")
             return None
 
-    def _keyword_fallback_check(self, response: str) -> Dict[str, Any]:
+    def _keyword_fallback_check(self, response: str, verified_customer_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Fallback safety check using keyword matching for PII detection.
         Checks if response contains customer names, addresses, postcodes, or balances.
+
+        Args:
+            response: The response text to check
+            verified_customer_id: If provided, allow PII for this customer (they're verified)
         """
         response_lower = response.lower()
         max_score = 0
@@ -316,9 +320,9 @@ class SafetyClassifier:
                 str(row['balance']),
                 str(row['card_last4'])
             ]
-            
+
             matches = sum(1 for elem in pii_elements if elem and elem in response_lower)
-            
+
             if matches > 0:
                 # Higher score for multiple PII elements from same customer
                 score = min(matches * 0.3, 0.95)
@@ -328,10 +332,12 @@ class SafetyClassifier:
 
         # Get matched customer record for detailed explainability
         matched_customer = None
+        matched_customer_id = None
         if max_score >= self.threshold:
             customer_row = self.sensitive_kb.iloc[matched_idx]
+            matched_customer_id = customer_row['customer_id']
             matched_customer = {
-                'customer_id': customer_row['customer_id'],
+                'customer_id': matched_customer_id,
                 'name': customer_row['name'],
                 'card_last4': customer_row['card_last4'],
                 'address': customer_row['address'],
@@ -339,27 +345,35 @@ class SafetyClassifier:
                 'balance': customer_row['balance']
             }
 
+        # Allow PII if it's for the verified customer (they can see their own data)
+        is_safe = max_score < self.threshold or (
+            verified_customer_id is not None and
+            matched_customer_id == verified_customer_id
+        )
+
         return {
-            'safe': max_score < self.threshold,
+            'safe': is_safe,
             'similarity_score': float(max_score),
             'matched_topic': f"customer_pii_{self.sensitive_kb.iloc[matched_idx]['customer_id']}" if max_score >= self.threshold else None,
             'matched_text': f"{self.sensitive_kb.iloc[matched_idx]['name']} - {self.sensitive_kb.iloc[matched_idx]['address']}" if max_score >= self.threshold else None,
             'matched_customer_record': matched_customer,
-            'method': 'keyword_fallback'
+            'method': 'keyword_fallback',
+            'verified_customer_exemption': verified_customer_id is not None and matched_customer_id == verified_customer_id
         }
 
-    def check_safety(self, agent_response: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
+    def check_safety(self, agent_response: Union[str, Dict[str, Any]], verified_customer_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Check if an agent response contains sensitive information.
-        
+
         Supports both plaintext strings (legacy) and encrypted payloads (secure).
         If an encrypted payload is provided, it will be decrypted before classification.
-        
+
         Args:
             agent_response: The response from the agent - either:
                 - str: Plaintext response (legacy, backward compatibility)
                 - Dict[str, Any]: Encrypted payload with ciphertext, nonce, key_id
-            
+            verified_customer_id: If provided, allow PII for this customer (they're verified)
+
         Returns:
             Dictionary containing:
                 - safe (bool): Whether the response is safe to send
@@ -368,6 +382,7 @@ class SafetyClassifier:
                 - matched_text (str): The sensitive info that was matched (if blocked)
                 - method (str): Method used for classification
                 - decryption_error (bool): True if decryption failed (only for encrypted payloads)
+                - verified_customer_exemption (bool): True if safe because customer is verified
         """
         # Handle encrypted payloads
         if is_encrypted_payload(agent_response):
@@ -387,7 +402,7 @@ class SafetyClassifier:
         else:
             # Plaintext response (backward compatibility)
             plaintext_response = agent_response
-        
+
         if not plaintext_response or len(plaintext_response.strip()) == 0:
             return {
                 'safe': True,
@@ -398,7 +413,7 @@ class SafetyClassifier:
             }
 
         if self.sensitive_embeddings is None:
-            return self._keyword_fallback_check(plaintext_response)
+            return self._keyword_fallback_check(plaintext_response, verified_customer_id)
 
         try:
             # Generate embedding for the response using OpenAI embeddings API
@@ -406,10 +421,10 @@ class SafetyClassifier:
                 response_embedding = self._encode_with_openai(plaintext_response)
                 if response_embedding is None:
                     # OpenAI encoding failed, fall back to keyword matching
-                    return self._keyword_fallback_check(plaintext_response)
+                    return self._keyword_fallback_check(plaintext_response, verified_customer_id)
             else:
                 # No embedding method available, fall back to keyword matching
-                return self._keyword_fallback_check(plaintext_response)
+                return self._keyword_fallback_check(plaintext_response, verified_customer_id)
 
             # Reshape to 2D array for cosine_similarity
             response_embedding = response_embedding.reshape(1, -1)
@@ -419,20 +434,26 @@ class SafetyClassifier:
             max_similarity = float(np.max(similarities))
             matched_idx = int(np.argmax(similarities))
 
-            is_safe = max_similarity < self.threshold
-
             # Get matched customer record for detailed explainability
             matched_customer = None
-            if not is_safe:
+            matched_customer_id = None
+            if max_similarity >= self.threshold:
                 customer_row = self.sensitive_kb.iloc[matched_idx]
+                matched_customer_id = customer_row['customer_id']
                 matched_customer = {
-                    'customer_id': customer_row['customer_id'],
+                    'customer_id': matched_customer_id,
                     'name': customer_row['name'],
                     'card_last4': customer_row['card_last4'],
                     'address': customer_row['address'],
                     'postcode': customer_row['postcode'],
                     'balance': customer_row['balance']
                 }
+
+            # Allow PII if it's for the verified customer (they can see their own data)
+            is_safe = max_similarity < self.threshold or (
+                verified_customer_id is not None and
+                matched_customer_id == verified_customer_id
+            )
 
             return {
                 'safe':
@@ -441,18 +462,19 @@ class SafetyClassifier:
                 max_similarity,
                 'matched_topic':
                 f"customer_pii_{self.sensitive_kb.iloc[matched_idx]['customer_id']}"
-                if not is_safe else None,
+                if max_similarity >= self.threshold else None,
                 'matched_text':
                 f"{self.sensitive_kb.iloc[matched_idx]['name']} - {self.sensitive_kb.iloc[matched_idx]['address']}"
-                if not is_safe else None,
+                if max_similarity >= self.threshold else None,
                 'matched_customer_record': matched_customer,
                 'method':
-                'embedding_similarity'
+                'embedding_similarity',
+                'verified_customer_exemption': verified_customer_id is not None and matched_customer_id == verified_customer_id
             }
 
         except Exception as e:
             print(f"Error in safety check: {e}")
-            return self._keyword_fallback_check(agent_response)
+            return self._keyword_fallback_check(plaintext_response, verified_customer_id)
 
     def get_safe_alternative(self, original_response: str,
                              safety_result: Dict[str, Any]) -> str:
