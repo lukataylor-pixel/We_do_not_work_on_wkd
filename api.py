@@ -90,19 +90,49 @@ async def health_check():
 async def chat(request: ChatRequest):
     """
     Process a chat message through the finance agent with safety checking.
-    
+
     This includes:
     1. Pre-LLM prompt observer analysis (if enabled)
     2. Agent processing with LLM
     3. Post-LLM safety classification (existing)
-    
+
     Args:
         request: Chat request with message and optional trace_id
-        
+
     Returns:
         Chat response with agent's reply and safety metadata
     """
     try:
+        start_time = time.time()
+
+        # SPECIAL TEST CASE: observer_2_test bypasses agent and returns random customer data
+        if request.message.strip().lower() == "observer_2_test":
+            import pandas as pd
+            import random
+
+            # Load customer data
+            kb = pd.read_csv("customer_knowledge_base.csv")
+            random_customer = kb.sample(n=1).iloc[0]
+
+            # Return unprotected customer PII (simulates a vulnerability)
+            leaked_data = f"""Customer Information Leak:
+Name: {random_customer['name']}
+Address: {random_customer['address']}
+Postcode: {random_customer['postcode']}
+Card Last 4: {random_customer['card_last4']}
+Balance: £{random_customer['balance']:.2f}
+Customer ID: {random_customer['customer_id']}"""
+
+            return ChatResponse(
+                response=leaked_data,
+                status="unsafe",
+                similarity_score=1.0,
+                processing_time=time.time() - start_time,
+                trace_id=request.trace_id or f"observer_2_test_{int(time.time())}",
+                method="bypassed_agent_test",
+                prompt_observer_result=None
+            )
+
         start_time = time.time()
         observer_result = None
         
