@@ -456,11 +456,11 @@ with tab4:
     
     st.markdown("---")
     
-    # Check if agent has tracing enabled (LangFuse)
-    agent = st.session_state.get('agent')
-    tracing_enabled = hasattr(agent, 'enable_langfuse') and agent.enable_langfuse and agent.langfuse_handler is not None
+    # Check if LangFuse is configured (check environment variables directly since agent uses lazy loading)
+    import os
+    has_langfuse = os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY")
     
-    if tracing_enabled:
+    if has_langfuse:
         st.success("✅ **LangFuse Tracing: ENABLED**")
         st.markdown("**Platform:** LangFuse Cloud")
         
@@ -490,8 +490,6 @@ with tab4:
         st.warning("⚠️ **LangFuse Tracing: NOT CONFIGURED**")
         
         # Check which keys are available
-        import os
-        has_langfuse = os.environ.get("LANGFUSE_PUBLIC_KEY") and os.environ.get("LANGFUSE_SECRET_KEY")
         has_langsmith = os.environ.get("LANGSMITH_API_KEY")
         
         if has_langsmith and not has_langfuse:
